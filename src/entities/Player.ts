@@ -48,6 +48,15 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.setVelocity(0, 0);
   }
 
+  unfreeze(): void {
+    this.frozen = false;
+  }
+
+  /** Instantly moves the player (and its body) and stops it. */
+  teleportTo(x: number, y: number): void {
+    (this.body as Phaser.Physics.Arcade.Body).reset(x, y);
+  }
+
   /** Actual speed in px/s. */
   get speed(): number {
     return (this.body as Phaser.Physics.Arcade.Body).velocity.length();

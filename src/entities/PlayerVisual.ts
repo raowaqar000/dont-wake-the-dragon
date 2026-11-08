@@ -29,11 +29,15 @@ export class PlayerVisual {
   /** Separate part so it can grow with treasure later. */
   public readonly sack: Phaser.GameObjects.Image;
   private readonly dust?: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Effect offsets layered on top of the normal look (teleport, hit, fall). */
+  private readonly fx = { scale: 1, alpha: 1, angle: 0, dx: 0, dy: 0 };
+  private readonly scene: Phaser.Scene;
 
   constructor(
     scene: Phaser.Scene,
     private readonly player: Player,
   ) {
+    this.scene = scene;
     const s = 1 / V.textureResolution;
     this.body = scene.add.sprite(0, 0, TEXTURE_KEYS.hero).setScale(s);
     this.sack = scene.add.image(0, 0, TEXTURE_KEYS.heroSack).setScale(s * V.sack.scale);
@@ -83,8 +87,10 @@ export class PlayerVisual {
     this.applyAnimation(timeScale);
 
     const flip = this.facing === 'left' ? -1 : 1;
-    this.root.setPosition(this.player.x, this.player.y + V.offsetY);
-    this.root.setScale(V.displayScale * flip, V.displayScale);
+    const fx = this.fx;
+    this.root.setPosition(this.player.x + fx.dx, this.player.y + V.offsetY + fx.dy);
+    this.root.setScale(V.displayScale * flip * fx.scale, V.displayScale * fx.scale);
+    this.root.setAlpha(fx.alpha).setAngle(fx.angle);
 
     // Sack sits over his back when walking away from the camera, behind him otherwise.
     if (this.dir === 'up') this.root.bringToTop(this.sack);
@@ -92,6 +98,75 @@ export class PlayerVisual {
     const info = heroFrameInfo(this.body.frame.name);
     const anchor = heroSackAnchor(this.dir, info?.pose ?? 'idle', info?.index ?? 0);
     this.sack.setPosition(anchor.x, anchor.y);
+  }
+
+  /** Teleport entry: flash white, spin and shrink away. */
+  shrinkOut(ms: number, onDone: () => void): void {
+    this.setTintFill(0xffffff);
+    this.scene.tweens.add({
+      targets: this.fx,
+      scale: 0.1,
+      alpha: 0,
+      angle: 180,
+      duration: ms,
+      ease: 'Cubic.easeIn',
+      onComplete: () => {
+        this.clearTint();
+        onDone();
+      },
+    });
+  }
+
+  /** Teleport exit: pop back to full size with a little overshoot. */
+  popIn(ms: number, onDone: () => void): void {
+    Object.assign(this.fx, { scale: 0.1, alpha: 0, angle: -90 });
+    this.scene.tweens.add({
+      targets: this.fx,
+      scale: 1,
+      alpha: 1,
+      angle: 0,
+      duration: ms,
+      ease: 'Back.easeOut',
+      onComplete: onDone,
+    });
+  }
+
+  /** Blink in a color a few times (caught). */
+  blink(color: number, blinkMs: number, times: number): void {
+    let on = false;
+    this.scene.time.addEvent({
+      delay: blinkMs,
+      repeat: times * 2 - 1,
+      callback: () => {
+        on = !on;
+        if (on) this.setTintFill(color);
+        else this.clearTint();
+      },
+    });
+  }
+
+  /** Fall into a pit at (x, y): slide to its center while spinning and shrinking. */
+  fallInto(x: number, y: number, ms: number): void {
+    this.scene.tweens.add({
+      targets: this.fx,
+      dx: x - this.player.x,
+      dy: y - this.player.y,
+      scale: 0,
+      alpha: 0.2,
+      angle: 300,
+      duration: ms,
+      ease: 'Quad.easeIn',
+    });
+  }
+
+  private setTintFill(color: number): void {
+    this.body.setTintFill(color);
+    this.sack.setTintFill(color);
+  }
+
+  private clearTint(): void {
+    this.body.clearTint();
+    this.sack.clearTint();
   }
 
   private updateFacing(vx: number, vy: number, speed: number): void {

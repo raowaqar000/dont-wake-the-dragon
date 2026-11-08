@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TUNING } from '../config';
+import { markUi } from '../systems/CameraRig';
 
 const J = TUNING.joystick;
 
@@ -39,6 +40,7 @@ export class Joystick {
     }
     this.base.setDepth(J.depth);
     this.knob.setDepth(J.depth + 1);
+    markUi(scene, this.base, this.knob);
 
     const input = scene.input;
     input.on(Phaser.Input.Events.POINTER_DOWN, this.onPointerDown, this);

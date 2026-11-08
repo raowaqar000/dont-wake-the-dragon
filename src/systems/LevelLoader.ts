@@ -1,121 +1,31 @@
 import Phaser from 'phaser';
 import { TUNING } from '../config';
-import { RESERVED_TILES, TILE, type LevelData } from '../levels/types';
+import type { LevelData } from '../levels/types';
+import { parseLevel, type ParsedLevel, type TilePos } from './LevelParser';
+import { validateLevel, walkSeconds } from './LevelValidator';
+import { SPIKE_LAYOUT } from './TrapTextureFactory';
+
+export { parseLevel, type ParsedLevel } from './LevelParser';
 
 const L = TUNING.level;
 
-/** Pure grid parse result, in tile units. No Phaser objects. */
-export interface ParsedLevel {
-  cols: number;
-  rows: number;
-  /** wall[y][x] */
-  wall: boolean[][];
-  start: { x: number; y: number };
-  /** Bounding box of all 'E' tiles (tile units). */
-  exit: { x: number; y: number; w: number; h: number };
-  /** Merged wall rectangles (tile units). */
-  wallRects: { x: number; y: number; w: number; h: number }[];
-}
-
 export interface BuiltLevel {
+  parsed: ParsedLevel;
   widthPx: number;
   heightPx: number;
   playerStart: Phaser.Math.Vector2;
   exitRect: Phaser.Geom.Rectangle;
   walls: Phaser.Physics.Arcade.StaticGroup;
-}
-
-const KNOWN = new Set<string>([...Object.values(TILE), ...Object.values(RESERVED_TILES)]);
-const RESERVED = new Set<string>(Object.values(RESERVED_TILES));
-
-export function parseLevel(data: LevelData): ParsedLevel {
-  const grid = data.grid;
-  const rows = grid.length;
-  if (rows === 0) throw new Error(`[${data.id}] grid is empty`);
-  const cols = grid[0].length;
-
-  const wall: boolean[][] = [];
-  const starts: { x: number; y: number }[] = [];
-  let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
-  const warned = new Set<string>();
-
-  grid.forEach((row, y) => {
-    if (row.length !== cols) {
-      throw new Error(`[${data.id}] row ${y} has ${row.length} tiles, expected ${cols}`);
-    }
-    const line: boolean[] = [];
-    for (let x = 0; x < cols; x++) {
-      const ch = row[x];
-      if (!KNOWN.has(ch)) throw new Error(`[${data.id}] unknown tile '${ch}' at ${x},${y}`);
-      if (RESERVED.has(ch) && !warned.has(ch)) {
-        warned.add(ch);
-        console.warn(`[${data.id}] tile '${ch}' is reserved but not implemented yet; treated as floor`);
-      }
-      line.push(ch === TILE.wall);
-      if (ch === TILE.playerStart) starts.push({ x, y });
-      if (ch === TILE.exit) {
-        ex0 = Math.min(ex0, x);
-        ey0 = Math.min(ey0, y);
-        ex1 = Math.max(ex1, x);
-        ey1 = Math.max(ey1, y);
-      }
-    }
-    wall.push(line);
-  });
-
-  if (starts.length !== 1) throw new Error(`[${data.id}] needs exactly one '${TILE.playerStart}', found ${starts.length}`);
-  if (ex1 < 0) throw new Error(`[${data.id}] needs at least one '${TILE.exit}'`);
-
-  return {
-    cols,
-    rows,
-    wall,
-    start: starts[0],
-    exit: { x: ex0, y: ey0, w: ex1 - ex0 + 1, h: ey1 - ey0 + 1 },
-    wallRects: mergeWalls(wall),
-  };
-}
-
-/**
- * Merges wall tiles into few rectangles: horizontal runs per row, then
- * identical runs in consecutive rows stack into one taller rectangle.
- * Fewer bodies = cheaper physics and fewer internal seams to snag on.
- */
-function mergeWalls(wall: boolean[][]): ParsedLevel['wallRects'] {
-  const done: ParsedLevel['wallRects'] = [];
-  let open = new Map<string, ParsedLevel['wallRects'][number]>();
-
-  wall.forEach((line, y) => {
-    const next = new Map<string, ParsedLevel['wallRects'][number]>();
-    let x = 0;
-    while (x < line.length) {
-      if (!line[x]) {
-        x++;
-        continue;
-      }
-      const x0 = x;
-      while (x < line.length && line[x]) x++;
-      const key = `${x0}:${x}`;
-      const rect = open.get(key);
-      if (rect) {
-        rect.h++;
-        open.delete(key);
-        next.set(key, rect);
-      } else {
-        next.set(key, { x: x0, y, w: x - x0, h: 1 });
-      }
-    }
-    open.forEach((r) => done.push(r));
-    open = next;
-  });
-  open.forEach((r) => done.push(r));
-  return done;
+  /** Adds a solid wall body on a tile at runtime (collapsed floor). */
+  addWallTile: (tile: TilePos) => void;
 }
 
 /** Builds physics walls and the baked floor/wall image for a level. */
 export class LevelLoader {
   static build(scene: Phaser.Scene, data: LevelData): BuiltLevel {
     const parsed = parseLevel(data);
+    if (import.meta.env.DEV) LevelLoader.check(data, parsed);
+
     const ts = L.tileSize;
     const widthPx = parsed.cols * ts;
     const heightPx = parsed.rows * ts;
@@ -123,19 +33,32 @@ export class LevelLoader {
     LevelLoader.drawTiles(scene, data.id, parsed, widthPx, heightPx);
 
     const walls = scene.physics.add.staticGroup();
-    for (const r of parsed.wallRects) {
-      const zone = scene.add.zone((r.x + r.w / 2) * ts, (r.y + r.h / 2) * ts, r.w * ts, r.h * ts);
-      walls.add(zone);
-    }
+    const addRect = (x: number, y: number, w: number, h: number) => {
+      walls.add(scene.add.zone((x + w / 2) * ts, (y + h / 2) * ts, w * ts, h * ts));
+    };
+    for (const r of parsed.wallRects) addRect(r.x, r.y, r.w, r.h);
     walls.refresh();
 
     return {
+      parsed,
       widthPx,
       heightPx,
       playerStart: new Phaser.Math.Vector2((parsed.start.x + 0.5) * ts, (parsed.start.y + 0.5) * ts),
       exitRect: new Phaser.Geom.Rectangle(parsed.exit.x * ts, parsed.exit.y * ts, parsed.exit.w * ts, parsed.exit.h * ts),
       walls,
+      addWallTile: (t) => addRect(t.x, t.y, 1, 1),
     };
+  }
+
+  /** Dev-only: path search over the level. Throws on unreachable exit / floor. */
+  private static check(data: LevelData, parsed: ParsedLevel): void {
+    const report = validateLevel(parsed);
+    if (report.errors.length > 0) throw new Error(`[${data.id}] ${report.errors.join('; ')}`);
+    const secs = (tiles: number) => walkSeconds(tiles, L.tileSize, TUNING.movement.sneakSpeed).toFixed(0);
+    console.info(
+      `[${data.id}] ok: shortest path ${report.shortest.length.toFixed(0)} tiles (~${secs(report.shortest.length)}s sneaking), ` +
+        `${report.shortestCollapsed.length.toFixed(0)} tiles with every crumbling floor collapsed`,
+    );
   }
 
   /** Draws every tile once into a single RenderTexture (one draw call per frame). */
@@ -179,6 +102,32 @@ export class LevelLoader {
           g.fillRect(px, py, ts, L.wallEdgeHeight);
         }
       }
+    }
+
+    // Spike plates with holes (the spikes themselves are animated sprites).
+    const S = TUNING.traps.spikes;
+    for (const group of p.spikeGroups) {
+      for (const t of group.tiles) {
+        const px = t.x * ts;
+        const py = t.y * ts;
+        g.fillStyle(S.plateEdgeColor, 1);
+        g.fillRect(px + 2, py + 2, ts - 4, ts - 4);
+        g.fillStyle(S.plateColor, 1);
+        g.fillRect(px + 4, py + 4, ts - 8, ts - 8);
+        g.fillStyle(S.holeColor, 1);
+        for (const h of SPIKE_LAYOUT) g.fillEllipse(px + h.x * ts, py + h.y * ts - 2, ts * 0.2, ts * 0.1);
+      }
+    }
+
+    // Pits under crumbling floors; the cracked slab sprite hides them until collapse.
+    const C = TUNING.traps.crumble;
+    for (const t of p.crumbles) {
+      const px = t.x * ts;
+      const py = t.y * ts;
+      g.fillStyle(C.pitRimColor, 1);
+      g.fillRect(px, py, ts, ts);
+      g.fillStyle(C.pitColor, 1);
+      g.fillRect(px + 4, py + 6, ts - 8, ts - 8);
     }
 
     const rt = scene.add.renderTexture(0, 0, w, h).setOrigin(0, 0).setDepth(L.depth);

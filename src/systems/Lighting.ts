@@ -5,8 +5,10 @@ const LT = TUNING.lighting;
 
 /** Texture resolution of the gradient. It's scaled up; gradients survive that fine. */
 const TEX_SIZE = 512;
-/** Display size: big enough that the image covers the whole screen from any player position. */
-const COVER_SIZE = Math.ceil(Math.hypot(GAME_WIDTH, GAME_HEIGHT) * 2) + 64;
+/** Display size (world px): covers the whole zoomed-out view from any player position. */
+const COVER_SIZE = Math.ceil((Math.hypot(GAME_WIDTH, GAME_HEIGHT) * 2) / TUNING.camera.zoom) + 64;
+/** lightRadius is on-screen px; convert to world px so the light looks the same at any zoom. */
+const WORLD_LIGHT_RADIUS = LT.lightRadius / TUNING.camera.zoom;
 
 /**
  * Cheap darkness: one big radial-gradient image centered on the player.
@@ -41,7 +43,7 @@ export class Lighting {
     const ctx = tex.getContext();
     const c = TEX_SIZE / 2;
     const scale = TEX_SIZE / COVER_SIZE;
-    const outer = LT.lightRadius * scale;
+    const outer = WORLD_LIGHT_RADIUS * scale;
     const inner = outer * (1 - LT.softness);
     const rgb = Phaser.Display.Color.IntegerToColor(LT.color);
     const rgba = (a: number) => `rgba(${rgb.red},${rgb.green},${rgb.blue},${a})`;

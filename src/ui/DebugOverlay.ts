@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { TUNING } from '../config';
+import { markUi } from '../systems/CameraRig';
 import type { Player } from '../entities/Player';
 import type { Joystick } from './Joystick';
 
 const D = TUNING.debug;
 
-/** Small top-left readout: move state, FPS, joystick strength, speed. */
+/** Small top-left readout: move state, FPS, joystick strength, speed, plus extra lines. */
 export class DebugOverlay {
   private readonly scene: Phaser.Scene;
   private readonly text: Phaser.GameObjects.Text;
@@ -23,9 +24,11 @@ export class DebugOverlay {
       })
       .setScrollFactor(0)
       .setDepth(D.depth);
+    markUi(scene, this.text);
   }
 
-  update(deltaMs: number, player: Player, joystick: Joystick): void {
+  /** @param extra additional lines from other systems (tile, portal, traps...) */
+  update(deltaMs: number, player: Player, joystick: Joystick, extra: () => string[] = () => []): void {
     this.elapsed += deltaMs;
     if (this.elapsed < D.refreshMs) return;
     this.elapsed = 0;
@@ -36,6 +39,7 @@ export class DebugOverlay {
       `fps:   ${fps}`,
       `str:   ${joystick.strength.toFixed(2)}`,
       `speed: ${Math.round(player.speed)}`,
+      ...extra(),
     ]);
   }
 }

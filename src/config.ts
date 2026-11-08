@@ -15,6 +15,10 @@ export const TEXTURE_KEYS = {
   hero: 'hero',
   heroSack: 'hero_sack',
   dust: 'dust',
+  portalSwirl: 'portal_swirl',
+  softGlow: 'soft_glow',
+  spikes: 'spikes',
+  crumble: 'crumble',
 } as const;
 
 export const COLORS = {
@@ -156,11 +160,108 @@ export const TUNING = {
   camera: {
     /** Follow smoothing per frame (0..1, 1 = locked to the player). */
     lerp: 0.1,
+    /** World camera zoom (< 1 shows more cave). HUD uses its own unzoomed camera. */
+    zoom: 0.85,
+    /** Fast pan to the destination after a teleport. */
+    portalPanMs: 380,
+    portalPanEase: 'Cubic.easeInOut',
+  },
+
+  portals: {
+    /** Pair colors, indexed by portal digit - 1. */
+    colors: [0x4fc3ff, 0xc77dff, 0x5cff9d, 0xff9f43, 0xff5c8a, 0xfff35c, 0x5cffe8, 0xa0a0ff, 0xffffff],
+    /** Teleport when the player's center is this close to the portal center (px). */
+    triggerRadius: 16,
+    /** After arriving, the player must get this far away before the portal works again (px)... */
+    rearmRadius: 34,
+    /** ...and at least this much time must have passed (ms). */
+    cooldownMs: 500,
+    /** Swirl display size (px) and time per full turn (ms). */
+    swirlSize: 46,
+    swirlSpinMs: 1800,
+    /** Swirl alpha while the portal is cooling down. */
+    disarmedAlpha: 0.4,
+    /** Soft glow above the darkness so portals show from afar. */
+    glowRadius: 72,
+    glowAlpha: 0.32,
+    glowPulseMs: 1100,
+    /** Teleport timings (ms): shrink at the entry, pop in at the exit. */
+    shrinkMs: 150,
+    /** Pop-in starts this long after the camera pan begins. */
+    popDelayMs: 160,
+    popMs: 200,
+    /** Expanding ring flash on both portals. */
+    burstMs: 380,
+    depth: 3,
+  },
+
+  traps: {
+    /** Trap hit boxes shrink by this much per side, so grazes don't count (px). */
+    hitInset: 6,
+
+    spikes: {
+      downMs: 1500,
+      upMs: 1000,
+      /** Warning shake at the end of the down phase (ms, part of downMs). */
+      warnMs: 350,
+      warnShakePx: 2,
+      /** How far the tips peek out while warning (0..1 of full height). */
+      warnPeek: 0.18,
+      /** Rise / lower animation (ms, part of upMs). Spikes only hurt between them. */
+      riseMs: 90,
+      lowerMs: 140,
+      /** Default phase offset between spike groups (ms * group index). */
+      groupOffsetMs: 700,
+      plateColor: 0x4a4652,
+      plateEdgeColor: 0x6a6574,
+      holeColor: 0x15121a,
+      steelColor: 0xc8ccd4,
+      steelShadeColor: 0x7a7f8a,
+      outlineColor: 0x0b0a0d,
+      depth: 2,
+    },
+
+    crumble: {
+      /** Shake time after being stepped on, before it collapses (ms). */
+      shakeMs: 800,
+      shakePx: 2.5,
+      collapseMs: 280,
+      /** Player falls in only if his center is this far inside the tile (px). */
+      fallInset: 6,
+      crackColor: 0x1e1a22,
+      crackLightColor: 0x55505c,
+      pitColor: 0x050407,
+      pitRimColor: 0x231f28,
+      dustColor: 0x9a9088,
+      /** Dust puffs per burst while shaking, and on collapse. */
+      shakeDust: 1,
+      shakeDustEveryMs: 120,
+      collapseDust: 10,
+      depth: 1,
+    },
+  },
+
+  fail: {
+    /** Red camera flash + shake when caught. */
+    flashMs: 260,
+    flashColor: { r: 255, g: 50, b: 40 },
+    shakeMs: 320,
+    shakeIntensity: 0.012,
+    /** Player blinks this color a few times. */
+    hitTintColor: 0xff4a3a,
+    hitBlinkMs: 80,
+    hitBlinks: 3,
+    /** Falling into a pit: shrink + spin toward its center (ms). */
+    fallMs: 500,
+    /** Time between being caught and the overlay appearing (ms). */
+    overlayDelayMs: 750,
+    titleColor: '#ff6b5c',
   },
 
   lighting: {
     enabled: true,
-    /** Distance from the player where the darkness reaches full strength (px). */
+    /** On-screen distance from the player where the darkness reaches full strength (px).
+     *  Divided by camera zoom, so zooming out shows more cave in the same-size light. */
     lightRadius: 300,
     /** Fraction of lightRadius used for the fade (rest is fully lit). */
     softness: 0.6,
@@ -201,6 +302,8 @@ export const TUNING = {
     enabled: true,
     /** Draw Arcade physics bodies (walls, player, exit). */
     showBodies: false,
+    /** Traps and other fails only flash instead of ending the run (for testing layouts). */
+    godMode: false,
     fontSize: 22,
     color: '#9fe870',
     /** How often the debug text refreshes (ms). */
