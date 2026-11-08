@@ -24,6 +24,15 @@ export const TEXTURE_KEYS = {
   chest: 'chest',
   chestOpen: 'chest_open',
   sparkle: 'sparkle',
+  noiseRing: 'noise_ring',
+  dragonBody: 'dragon_body',
+  dragonHead: 'dragon_head',
+  dragonTailTip: 'dragon_tail_tip',
+  dragonEyeHalf: 'dragon_eye_half',
+  dragonEyeOpen: 'dragon_eye_open',
+  dragonZ: 'dragon_z',
+  smokePuff: 'smoke_puff',
+  flame: 'flame',
 } as const;
 
 export const COLORS = {
@@ -261,6 +270,242 @@ export const TUNING = {
     /** Time between being caught and the overlay appearing (ms). */
     overlayDelayMs: 750,
     titleColor: '#ff6b5c',
+    /** Charred by dragon fire: the hero darkens to this color over charMs. */
+    charColor: 0x2a2224,
+    charMs: 260,
+  },
+
+  /**
+   * Noise. Every noise has a loudness. It carries loudness * rangePerLoudness px
+   * (the ring shows exactly that, times ring.scale) and adds to a listener's sleep meter:
+   *   loudness * meterPerLoudness * (1 - d / range) ^ falloffExponent * walls * hearing
+   * where d is the distance to the nearest edge of the listener's body.
+   */
+  noise: {
+    /** Loudness of one footstep per move state. Standing still makes no steps. */
+    footstep: { sneak: 0.22, run: 1 },
+    /** While a chest's ring fills: one tick every chestTickMs, then a louder pop when it opens. */
+    chestTick: 0.5,
+    chestTickMs: 350,
+    chestOpen: 0.8,
+    /** Teleport: a small noise at both portals. */
+    portal: 0.4,
+    /** Carry range (px) of loudness 1. A run step reaches ~7 tiles. */
+    rangePerLoudness: 336,
+    /** Meter points at the source for loudness 1, before falloff. */
+    meterPerLoudness: 16,
+    /** Higher = quieter toward the edge of the range. */
+    falloffExponent: 1.5,
+    /** Multiplier when any wall tile blocks the straight line (pits don't block). */
+    wallDampening: 0.2,
+    /** Footstep position below the player's center (px): the feet. */
+    feetOffsetY: 14,
+
+    ring: {
+      /** Ring radius = carry range * scale (1 = honest: a dragon inside the ring heard it). */
+      scale: 1,
+      /** Rings start this small (px) and expand to their radius while fading out. */
+      startRadius: 6,
+      /** Expand time: baseMs + radius * msPerPx. */
+      baseMs: 300,
+      msPerPx: 1.2,
+      /** Alpha at the start; fades to 0 as the ring expands. */
+      alpha: 0.6,
+      /** Rings smaller than this (px) are not shown. */
+      minRadius: 8,
+      /** Pool size. When all are busy, the oldest is reused. */
+      pool: 10,
+      colors: {
+        footstep: 0xffffff,
+        chest: 0xffd23f,
+        portal: 0x9fd8ff,
+        floor: 0xffffff,
+        throw: 0xffffff,
+        roar: 0xff6a3a,
+      },
+      /** Above the darkness so the whole reach shows. */
+      depth: 101,
+    },
+  },
+
+  /** Sleeping dragons: footprint, sleep meter, look and the wake-up sequence. */
+  dragon: {
+    /** Physics body shrinks by this much per side (px), so the round body doesn't feel boxy. */
+    bodyInset: 6,
+    /** Default hearing multiplier (LevelData.dragonOverrides can change it per dragon). */
+    hearing: 1,
+    textureResolution: 2,
+    /** Texture sizes (logical px). The body overhangs the 144x96 footprint a little. */
+    bodyTexture: { w: 168, h: 116 },
+    headTexture: { w: 64, h: 52 },
+    /** Neck = head pivot, in the body frame (px from the footprint center, head facing right). */
+    neck: { x: 26, y: -4 },
+    /** Points on the head, relative to the neck (before head turn / lift). */
+    mouth: { x: 46, y: 0 },
+    nostril: { x: 42, y: 0 },
+    /** Eye 0 is the one that half opens in stage 3. */
+    eyes: [
+      { x: 20, y: -8 },
+      { x: 20, y: 8 },
+    ],
+    /** Tail tip pivot in the body frame, and its resting angle (deg). */
+    tailTip: { x: 43, y: 30, angleDeg: -37 },
+    depth: 5,
+    /** Eyes, Zzz, smoke and the meter bar draw above the darkness, so you can spot a dragon in the dark. */
+    overlayDepth: 105,
+
+    meter: {
+      max: 100,
+      /** Stage 2 (stirring) and stage 3 (about to wake) start at these values. */
+      stage2: 40,
+      stage3: 75,
+      /** Dropping back a stage needs the meter this far below the threshold (stops flicker). */
+      hysteresis: 5,
+      /** Quiet time before the meter drains (ms), then the drain speed (points/s). */
+      drainDelayMs: 1000,
+      drainPerSec: 10,
+      /** In godMode the meter stops here, so dragons never wake. */
+      godModeCap: 99,
+    },
+
+    /** Breathing: the body swells and shrinks. Period per stage 1/2/3 (ms) and swell amount. */
+    breath: { periodMs: [2800, 1500, 950], amount: 0.035, headBobPx: 1 },
+
+    zzz: {
+      /** A new "z" every everyMs (stage 1 only), at most `max` per dragon. */
+      everyMs: 1100,
+      max: 3,
+      riseMs: 2000,
+      risePx: 52,
+      driftPx: 16,
+      scaleStart: 0.6,
+      scaleEnd: 1.3,
+      alpha: 0.85,
+    },
+
+    snore: {
+      /** Random gap between snore puffs (ms), stage 1. */
+      minMs: 3500,
+      maxMs: 6500,
+      puffs: 3,
+    },
+
+    stir: {
+      /** Stage 2: tail twitch every min..max ms. */
+      twitchMinMs: 700,
+      twitchMaxMs: 1500,
+      twitchDeg: 22,
+      twitchMs: 220,
+      /** Low growl: the body shakes for growlMs every min..max ms. */
+      growlMinMs: 1600,
+      growlMaxMs: 2600,
+      growlMs: 420,
+      growlShakePx: 1.6,
+    },
+
+    alert: {
+      /** Stage 3: the head lifts (px forward) and grows a little; small smoke puffs. */
+      headLiftPx: 4,
+      headLiftScale: 1.06,
+      /** How fast the head lifts / settles (fraction per second). */
+      liftPerSec: 3,
+      puffEveryMs: 750,
+      /** The half-open eye's glow pulses with this period (ms). */
+      glowPulseMs: 700,
+    },
+
+    phew: {
+      /** Stage 3 back to stage 1: the eye closes slowly, then a relieved puff. */
+      eyeCloseMs: 700,
+      puffs: 4,
+    },
+
+    eyeGlow: { color: 0xffb02e, radius: 18, alpha: 0.55 },
+
+    meterBar: {
+      width: 74,
+      height: 10,
+      /** Gap above the footprint top (px). */
+      gapPx: 10,
+      backColor: 0x000000,
+      backAlpha: 0.55,
+      borderColor: 0x0b0a0d,
+      /** Fill color per stage 1/2/3. */
+      colors: [0x5cb8ff, 0xffb02e, 0xff4a3a],
+      /** Fades in when the meter rises above 0, out when it is back at 0 (ms). */
+      fadeMs: 250,
+    },
+
+    smoke: { lifespanMs: 900, speedMin: 10, speedMax: 28, scaleStart: 0.35, scaleEnd: 1.1, alpha: 0.5, color: 0x9a9090 },
+
+    wake: {
+      /** Both eyes open, the head lifts and turns toward the hero (ms). */
+      eyesOpenMs: 160,
+      turnMs: 300,
+      /** Max head turn away from its facing (deg). */
+      maxTurnDeg: 75,
+      liftScale: 1.15,
+      liftPx: 8,
+      /** Roar: world camera shake, heavy vibration, a red ring and smoke. */
+      roarAtMs: 300,
+      roarShakeMs: 450,
+      roarShakeIntensity: 0.018,
+      roarRingRadius: 260,
+      roarPuffs: 10,
+      /** Fire cone from the mouth to the hero. */
+      fireAtMs: 750,
+      fireMs: 650,
+      /** Cone half-angle (deg). */
+      fireConeDeg: 12,
+      fireEveryMs: 16,
+      firePerTick: 3,
+      fireLifespanMs: 380,
+      fireScaleStart: 0.45,
+      fireScaleEnd: 1.6,
+      fireColors: [0xfff6b0, 0xffc040, 0xff5a1a, 0x5a1a10],
+      /** The hero is charred at charAtMs; the result card opens at resultAtMs. */
+      charAtMs: 1100,
+      resultAtMs: 1850,
+      charSmoke: 12,
+      /** Short orange flash when the fire hits. */
+      flashMs: 180,
+      flashColor: { r: 255, g: 140, b: 40 },
+      /** Camera pans toward the dragon: 0 = stay on the hero, 1 = on the dragon. */
+      panShare: 0.4,
+      panMs: 450,
+      panEase: 'Sine.easeInOut',
+    },
+
+    colors: {
+      outline: 0x14080a,
+      body: 0xb8323a,
+      bodyShade: 0x7d1f2a,
+      bodyLight: 0xe0574f,
+      belly: 0xf0b45a,
+      wing: 0x6a1c2e,
+      wingShade: 0x4a1222,
+      wingRib: 0x2a0810,
+      spine: 0xf2d8a8,
+      horn: 0xf2e2c0,
+      hornShade: 0xb8a07a,
+      claw: 0xf2e2c0,
+      nostril: 0x3a0c10,
+      lid: 0x4a0e18,
+      eyeIris: 0xffc23a,
+      eyeLight: 0xfff4c0,
+      pupil: 0x1a0606,
+      z: 0xcfe6ff,
+    },
+  },
+
+  haptics: {
+    enabled: true,
+    /** Light tick when a dragon starts stirring (stage 2 or 3). */
+    lightMs: 30,
+    /** Strong buzz when a dragon wakes (ms). */
+    heavyMs: 400,
+    /** Light ticks closer together than this are skipped (ms). */
+    cooldownMs: 400,
   },
 
   lighting: {
@@ -481,6 +726,8 @@ export const TUNING = {
     showBodies: false,
     /** Traps and other fails only flash instead of ending the run (for testing layouts). */
     godMode: false,
+    /** Draw each dragon's hearing reach (run step outer, sneak step inner) and its meter value. */
+    showDragons: true,
     fontSize: 22,
     color: '#9fe870',
     /** How often the debug text refreshes (ms). */

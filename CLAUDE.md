@@ -15,11 +15,13 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - Player: `Player` (invisible Arcade physics circle, move state); `PlayerVisual` (animated thief and a separate public `sack` image).
   - Level objects: `ExitZone`, `Portal`, `SpikeTrap`, `CrumbleTile`.
   - Treasure: `Pickup` (coin/gem; idle animation driven by LootSystem) and `Chest` (solid, glow, progress ring, lid open).
+  - `Dragon`: one sleeping dragon (sleep meter, 3 stages, breathing, Zzz, tail twitch, eye glow, meter bar, wake pose). Implements `NoiseListener`. All parts are placed through `toWorld()` (art frame = head facing right), so an upright dragon only needs a base rotation.
 - `src/systems/`:
   - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`).
   - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem`; `FailSystem`.
+  - Noise and dragons: `NoiseSystem` (`emitNoise(x, y, loudness, source)`, distance falloff, grid-DDA wall dampening, pooled fading rings); `DragonSystem` (owns the dragons, shared smoke/fire emitters, stage haptics, the wake-up sequence, debug reach); `HapticsService` (Capacitor Haptics, `navigator.vibrate` fallback, never throws).
   - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot in localStorage, guarded with try/catch).
-  - Graphics: `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory` and `TreasureTextureFactory` (procedural art made at boot).
+  - Graphics: `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory` and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
   - Browser: `MobileGuards` (blocks zoom, scroll and long-press).
 - `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only); `Hud` (top bar: loot, timer, gems, chests); `ResultOverlay` (end-of-run card); `EscapeOverlay`; `DebugOverlay` (below the HUD).
 - `src/levels/`: `types.ts` (level format and symbols, no imports); `level01.ts` ("The Deep Warren", 25x60 tiles).
@@ -28,24 +30,26 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 ## Architecture rules
 
 - **All tunable numbers live in `TUNING` in `src/config.ts`** (speeds, timings, colors, sizes, depths). Don't add magic numbers in entities or systems. Read them through a local alias such as `const P = TUNING.portals`.
-- **Systems stay decoupled.** Systems get what they need as injected deps and callbacks (for example `TrapSystem({ onCaught, isPaused, onFloorCollapsed })`). Cross-cutting systems emit events: `LootSystem` extends `Phaser.Events.EventEmitter`, and the HUD and the sack listen to `LOOT_EVENTS.changed`. New systems (noise, dragons) should follow the same pattern.
+- **Systems stay decoupled.** Systems get what they need as injected deps and callbacks (for example `TrapSystem({ onCaught, isPaused, onFloorCollapsed })`). Cross-cutting systems emit events: `LootSystem` extends `Phaser.Events.EventEmitter`, and the HUD and the sack listen to `LOOT_EVENTS.changed`. New systems should follow the same pattern.
+- **All sound goes through `NoiseSystem.emitNoise(x, y, loudness, source)`.** GameScene wires it in: footsteps (`PlayerVisual.onFootstep`, fired on footfall frames), chest ticks and the open pop (`LootSystem` `onNoise`), portals (`PortalSystem` `onPortalNoise`). Noisy floors and thrown objects should call the same API with a new `NoiseSource`. Loudness 1 = a run step; carry range = loudness * `TUNING.noise.rangePerLoudness`, and the ring shows exactly that range. Anything that hears implements `NoiseListener` and is registered with `noise.addListener`.
 - **UI goes on the UI camera.** `new CameraRig(scene)` must be created first in `create()`:
   - The world camera is zoomed (`TUNING.camera.zoom`) and follows the player. The UI camera has zoom 1 and never scrolls.
   - Every HUD object must call `markUi(scene, ...objects)`. Use `setScrollFactor(0)` for HUD objects.
   - Shakes, flashes and pans on gameplay use `rig.world` only.
 - **Run end goes through `FailSystem`.**
-  - `fail(reason, effect)` handles traps, pits and, later, the dragon. Add new causes to `FAIL_REASONS`.
+  - `fail(reason, effect)` handles traps and pits. Add new causes to `FAIL_REASONS`.
+  - A fail with a sequence (the dragon) calls `fail.begin()` first (locks the run, freezes input), plays its sequence, then calls `fail.finish(reason, effect, overlayDelayMs)`.
   - Escape calls `fail.lock()` first. The first outcome wins, and nothing can end the run twice.
   - Check `fail.isOver` (and `portals.isTeleporting`) before reacting to gameplay.
-  - `TUNING.debug.godMode` turns fails into a flash.
+  - `TUNING.debug.godMode` turns fails into a flash, and caps dragon meters at 99 so they never wake.
 - **Levels are grids of strings** (`LevelData.grid`, one char per tile, row 0 at the top, `TUNING.level.tileSize` = 48).
   - `LevelParser` turns the grid into a `ParsedLevel`.
   - `LevelValidator` checks in dev, at load:
     - the exit is reachable, both with crumbling floors intact and with all of them collapsed;
-    - every floor tile is reachable (8-way movement, no corner cutting, portals act as jumps).
+    - every floor tile is reachable (8-way movement, no corner cutting, portals act as jumps; chests and dragon footprints are solid).
   - `LevelLoader.check` throws if any check fails.
 - **Visual and physics are split:** `Player` is physics only, and `PlayerVisual` reads its velocity after the physics step (POST_UPDATE).
-- **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100. HUD is 1500, debug 2000, overlays 3000.
+- **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108. HUD is 1500, debug 2000, overlays 3000.
 - **Clean up on scene restart:** retry calls `scene.restart()`. Remove scene and game event listeners on `SHUTDOWN`.
 
 ## Level symbols (from `src/levels/types.ts`)
@@ -62,7 +66,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 | `c` | treasure: coin (instant pickup) | implemented |
 | `g` | treasure: gem / diamond (instant pickup) | implemented |
 | `T` | treasure: chest (solid; stand still next to it to open it); every treasure must be reachable | implemented |
-| `D` | dragon spawn | reserved (parsed as floor, with a warning) |
+| `D` | sleeping dragon; touching `D` tiles form one dragon, exactly 3 wide x 2 tall (`DRAGON_FOOTPRINTS`); solid; facing auto (more open side) or `LevelData.dragonOverrides` (facing, hearing) | implemented |
 | `~` | hazard (water / lava) | reserved |
 | `S` | special (unassigned) | reserved |
 | `x` | noisy floor: broken glass | reserved |
@@ -103,14 +107,17 @@ Coins or gems on top of another tile (for example a gem on a crumbling floor) go
    - FailSystem with CAUGHT/ESCAPED via ResultOverlay;
    - darkness lighting, a separate UI camera, and LevelValidator.
 5. Treasure and loot: coins, gems and chests (hold still to open); LootSystem with events; HUD; growing sack; ESCAPED/CAUGHT loot stats; best loot saved locally.
+6. Sleeping dragons and noise:
+   - NoiseSystem with footstep, chest and portal noise, wall dampening and visible noise rings;
+   - 5 dragons in level01 with a sleep meter, 3 wake stages, a "phew" on near misses, and a ~1.8 s wake-up (roar, fire, charred hero, "THE DRAGON WOKE UP!");
+   - haptics on stirring and on wake-up.
 
 ## Next planned features
 
-1. Dragons and the noise system.
-2. Noisy floor hazards (glass, chains, loose rocks).
-3. Distract throw.
-4. Dragon behaviours.
-5. Greed mechanic (loot weight slows the player; hook: `LootSystem.speedMultiplier` sets `Player.speedMultiplier`, tuned by `TUNING.loot.greed`).
-6. Juice: sound, haptics (`@capacitor/haptics` is installed), particles.
-7. More levels.
-8. Supabase leaderboard.
+1. Noisy floor hazards (glass, chains, loose rocks).
+2. Distract throw.
+3. Dragon behaviours (upright 2x3 dragons: add `upright` to `DRAGON_FOOTPRINTS` and a base rotation in `Dragon`).
+4. Greed mechanic (loot weight slows the player; hook: `LootSystem.speedMultiplier` sets `Player.speedMultiplier`, tuned by `TUNING.loot.greed`).
+5. Juice: sound, more haptics, particles.
+6. More levels.
+7. Supabase leaderboard.

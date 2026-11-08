@@ -33,6 +33,8 @@ export interface LootSystemDeps {
   camera: Phaser.Cameras.Scene2D.Camera;
   /** While true, nothing can be picked up or opened (teleport, run over). */
   isPaused: () => boolean;
+  /** Chest noise: ticks while the ring fills, and a louder pop when it opens. */
+  onNoise?: (x: number, y: number, loudness: number) => void;
 }
 
 /** Sack scale for a loot value (1 = starting size). */
@@ -56,6 +58,8 @@ export class LootSystem extends Phaser.Events.EventEmitter {
   private openedChests = 0;
   private opening?: Chest;
   private openProgressMs = 0;
+  /** Time since the last chest noise tick while opening. */
+  private noiseTickMs = 0;
 
   public readonly gemsTotal: number;
   public readonly chestsTotal: number;
@@ -171,7 +175,14 @@ export class LootSystem extends Phaser.Events.EventEmitter {
       this.resetOpening();
       this.opening = near;
     }
-    this.openProgressMs += Math.min(deltaMs, TUNING.movement.maxDeltaMs);
+    const step = Math.min(deltaMs, TUNING.movement.maxDeltaMs);
+    this.openProgressMs += step;
+    // The lock rattles: a little noise every chestTickMs while the ring fills.
+    this.noiseTickMs += step;
+    if (this.noiseTickMs >= TUNING.noise.chestTickMs) {
+      this.noiseTickMs -= TUNING.noise.chestTickMs;
+      this.deps.onNoise?.(near.x, near.y, TUNING.noise.chestTick);
+    }
     const p = this.openProgressMs / C.openMs;
     if (p >= 1) {
       this.openChest(near);
@@ -184,12 +195,15 @@ export class LootSystem extends Phaser.Events.EventEmitter {
     this.opening?.setProgress(0);
     this.opening = undefined;
     this.openProgressMs = 0;
+    this.noiseTickMs = 0;
   }
 
   private openChest(c: Chest): void {
     const C = T.chest;
     this.opening = undefined;
     this.openProgressMs = 0;
+    this.noiseTickMs = 0;
+    this.deps.onNoise?.(c.x, c.y, TUNING.noise.chestOpen);
     c.open();
     this.openedChests++;
     this.fx.coinBurst(c.x, c.y - 6, C.burstCoins);

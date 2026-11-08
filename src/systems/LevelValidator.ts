@@ -4,7 +4,7 @@ import type { ParsedLevel, TilePos } from './LevelParser';
  * Pure path search over a parsed level (no Phaser), run at load and from the
  * command line. Movement is 8-way (diagonals only when both side tiles are open,
  * like the real circle body). Walking onto a portal tile puts you on its partner.
- * Chests are solid; a chest counts as reachable when a tile beside it (4-way) is.
+ * Chests and dragons are solid; a chest counts as reachable when a tile beside it (4-way) is.
  */
 
 export interface PathResult {
@@ -47,11 +47,13 @@ export function validateLevel(p: ParsedLevel, values?: TreasureValues): LevelRep
   const collapsed = search(p, true);
   const at = (x: number, y: number) => y * p.cols + x;
   const chestSet = new Set(p.chests.map((c) => at(c.x, c.y)));
+  const dragonSet = new Set(dragonTiles(p).map((t) => at(t.x, t.y)));
 
   const unreachable: TilePos[] = [];
   for (let y = 0; y < p.rows; y++) {
     for (let x = 0; x < p.cols; x++) {
-      if (!p.wall[y][x] && !chestSet.has(at(x, y)) && !intact.reached[at(x, y)]) unreachable.push({ x, y });
+      const i = at(x, y);
+      if (!p.wall[y][x] && !chestSet.has(i) && !dragonSet.has(i) && !intact.reached[i]) unreachable.push({ x, y });
     }
   }
 
@@ -96,6 +98,17 @@ export function validateLevel(p: ParsedLevel, values?: TreasureValues): LevelRep
   };
 }
 
+/** Every tile covered by a dragon (dragons are solid). */
+function dragonTiles(p: ParsedLevel): TilePos[] {
+  const tiles: TilePos[] = [];
+  for (const d of p.dragons) {
+    for (let y = d.rect.y; y < d.rect.y + d.rect.h; y++) {
+      for (let x = d.rect.x; x < d.rect.x + d.rect.w; x++) tiles.push({ x, y });
+    }
+  }
+  return tiles;
+}
+
 /** Seconds to walk `tiles` at `speedPx` px/s. */
 export function walkSeconds(tiles: number, tileSize: number, speedPx: number): number {
   return (tiles * tileSize) / speedPx;
@@ -110,6 +123,7 @@ function search(p: ParsedLevel, crumblesCollapsed: boolean): { result: PathResul
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) blocked[idx(x, y)] = p.wall[y][x];
   if (crumblesCollapsed) for (const c of p.crumbles) blocked[idx(c.x, c.y)] = true;
   for (const c of p.chests) blocked[idx(c.x, c.y)] = true;
+  for (const t of dragonTiles(p)) blocked[idx(t.x, t.y)] = true;
 
   const partner = new Map<number, number>();
   for (const pr of p.portals) {

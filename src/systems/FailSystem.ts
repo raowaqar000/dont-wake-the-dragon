@@ -19,13 +19,14 @@ export interface FailReason {
 export type FailEffect =
   | { kind: 'hit' }
   /** Falls into a pit centered at (x, y). */
-  | { kind: 'fall'; x: number; y: number };
+  | { kind: 'fall'; x: number; y: number }
+  /** Burnt by dragon fire: turns black (the dragon adds the smoke). */
+  | { kind: 'charred' };
 
 export const FAIL_REASONS = {
   trap: { id: 'trap', title: 'CAUGHT!', titleColor: F.titleColor, subtitle: 'The cave got you.' },
   pit: { id: 'pit', title: 'CAUGHT!', titleColor: F.titleColor, subtitle: 'The floor gave way.' },
-  /** Reserved for the dragon feature. */
-  dragon: { id: 'dragon', title: 'THE DRAGON WOKE UP!', titleColor: F.titleColor },
+  dragon: { id: 'dragon', title: 'THE DRAGON WOKE UP!', titleColor: F.titleColor, subtitle: 'You made too much noise.' },
 } as const satisfies Record<string, FailReason>;
 
 export interface FailSystemDeps {
@@ -39,11 +40,15 @@ export interface FailSystemDeps {
 }
 
 /**
- * Single owner of "the run is over". Escape and every fail (traps now, the dragon
- * later) go through lock(), so only the first outcome wins.
+ * Single owner of "the run is over". Escape and every fail go through lock(),
+ * so only the first outcome wins.
+ *  - fail(reason, effect): instant fail (traps, pits).
+ *  - begin() ... finish(reason, effect): a fail with a sequence in between (the dragon
+ *    wakes, roars and breathes fire). begin() locks the run and freezes input at once.
  */
 export class FailSystem {
   private over = false;
+  private finished = false;
   private lastGodFlash = -Infinity;
 
   constructor(
@@ -64,33 +69,52 @@ export class FailSystem {
 
   fail(reason: FailReason, effect: FailEffect = { kind: 'hit' }): void {
     if (this.over) return;
-    const { player, visual, joystick, camera } = this.deps;
 
     if (TUNING.debug.godMode) {
       const now = this.scene.time.now;
       if (now - this.lastGodFlash > 500) {
         this.lastGodFlash = now;
-        camera.flash(120, F.flashColor.r, F.flashColor.g, F.flashColor.b);
+        const c = F.flashColor;
+        this.deps.camera.flash(120, c.r, c.g, c.b);
         console.info(`[godMode] ignored fail: ${reason.id}`);
       }
       return;
     }
 
-    this.lock();
-    player.freeze();
-    joystick.setEnabled(false);
+    this.begin();
+    this.finish(reason, effect);
+  }
 
-    camera.flash(F.flashMs, F.flashColor.r, F.flashColor.g, F.flashColor.b);
-    camera.shake(F.shakeMs, F.shakeIntensity);
-    if (effect.kind === 'fall') {
-      // Stop the new pit wall from shoving the body around mid-fall.
-      (player.body as Phaser.Physics.Arcade.Body).enable = false;
-      visual.fallInto(effect.x, effect.y, F.fallMs);
+  /** Claims the outcome and freezes the player. Returns false if the run already ended. */
+  begin(): boolean {
+    if (!this.lock()) return false;
+    this.deps.player.freeze();
+    this.deps.joystick.setEnabled(false);
+    return true;
+  }
+
+  /** Plays the effect, then opens the CAUGHT card after `overlayDelayMs`. Call after begin(). */
+  finish(reason: FailReason, effect: FailEffect = { kind: 'hit' }, overlayDelayMs: number = F.overlayDelayMs): void {
+    if (!this.over || this.finished) return;
+    this.finished = true;
+    const { player, visual, camera } = this.deps;
+    const c = F.flashColor;
+
+    if (effect.kind === 'charred') {
+      visual.char(F.charColor, F.charMs);
     } else {
-      visual.blink(F.hitTintColor, F.hitBlinkMs, F.hitBlinks);
+      camera.flash(F.flashMs, c.r, c.g, c.b);
+      camera.shake(F.shakeMs, F.shakeIntensity);
+      if (effect.kind === 'fall') {
+        // Stop the new pit wall from shoving the body around mid-fall.
+        (player.body as Phaser.Physics.Arcade.Body).enable = false;
+        visual.fallInto(effect.x, effect.y, F.fallMs);
+      } else {
+        visual.blink(F.hitTintColor, F.hitBlinkMs, F.hitBlinks);
+      }
     }
 
-    this.scene.time.delayedCall(F.overlayDelayMs, () => {
+    this.scene.time.delayedCall(overlayDelayMs, () => {
       new ResultOverlay(this.scene, {
         title: reason.title,
         titleColor: reason.titleColor,

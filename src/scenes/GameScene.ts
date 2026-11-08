@@ -6,7 +6,10 @@ import { ExitZone } from '../entities/ExitZone';
 import { level01 } from '../levels/level01';
 import type { LevelData } from '../levels/types';
 import { CameraRig } from '../systems/CameraRig';
+import { DragonSystem } from '../systems/DragonSystem';
 import { FAIL_REASONS, FailSystem } from '../systems/FailSystem';
+import { HapticsService } from '../systems/HapticsService';
+import { NoiseSystem } from '../systems/NoiseSystem';
 import { LevelLoader } from '../systems/LevelLoader';
 import { Lighting } from '../systems/Lighting';
 import { LOOT_EVENTS, LootSystem, sackScaleFor, type LootChange } from '../systems/LootSystem';
@@ -25,6 +28,8 @@ export class GameScene extends Phaser.Scene {
   private portals!: PortalSystem;
   private traps!: TrapSystem;
   private loot!: LootSystem;
+  private noise!: NoiseSystem;
+  private dragons!: DragonSystem;
   private hud!: Hud;
   private debug?: DebugOverlay;
   private level: LevelData = level01;
@@ -76,12 +81,27 @@ export class GameScene extends Phaser.Scene {
       resultLines: () => [{ text: `Loot lost: ${this.loot.loot}`, color: TUNING.hud.lootColor, fontSize: 44 }],
     });
 
-    this.portals = new PortalSystem(this, built.parsed.portals, this.player, visual, rig, () => this.fail.isOver);
+    // Every sound in the cave goes through emitNoise (footsteps, chests, portals; later floors and throws).
+    const N = TUNING.noise;
+    const noise = new NoiseSystem(this, built.parsed.wall);
+    this.noise = noise;
+    visual.onFootstep = (pose, x, y) => noise.emitNoise(x, y, N.footstep[pose], 'footstep');
+
+    this.portals = new PortalSystem(
+      this,
+      built.parsed.portals,
+      this.player,
+      visual,
+      rig,
+      () => this.fail.isOver,
+      (x, y) => noise.emitNoise(x, y, N.portal, 'portal'),
+    );
 
     this.loot = new LootSystem(this, built.parsed, {
       player: this.player,
       camera: rig.world,
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+      onNoise: (x, y, loudness) => noise.emitNoise(x, y, loudness, 'chest'),
     });
     this.loot.on(LOOT_EVENTS.changed, (e: LootChange) => {
       visual.growSack(sackScaleFor(e.total));
@@ -94,6 +114,15 @@ export class GameScene extends Phaser.Scene {
       onFloorCollapsed: (tile) => this.loot.onFloorCollapsed(tile),
       onCaught: (kind, effect) => this.fail.fail(kind === 'pit' ? FAIL_REASONS.pit : FAIL_REASONS.trap, effect),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+    });
+
+    this.dragons = new DragonSystem(this, built.parsed.dragons, {
+      noise,
+      player: this.player,
+      fail: this.fail,
+      rig,
+      haptics: new HapticsService(),
+      isPaused: () => this.portals.isTeleporting,
     });
 
     this.hud = new Hud(this, this.loot);
@@ -110,6 +139,7 @@ export class GameScene extends Phaser.Scene {
     this.portals.update();
     this.traps.update();
     this.loot.update(delta);
+    this.dragons.update(delta);
     if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.time.now - this.startTime);
     this.debug?.update(delta, this.player, this.joystick, () => this.debugLines());
   }
@@ -121,6 +151,8 @@ export class GameScene extends Phaser.Scene {
       this.portals.debugLine,
       this.traps.debugLine,
       this.loot.debugLine,
+      this.dragons.debugLine,
+      this.noise.debugLine,
     ];
   }
 

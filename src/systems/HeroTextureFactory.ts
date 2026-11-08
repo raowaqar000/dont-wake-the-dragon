@@ -18,8 +18,10 @@ const POSES: readonly HeroPose[] = ['idle', 'sneak', 'run'];
 const FRAME_COUNTS: Record<HeroPose, number> = { idle: 2, sneak: 4, run: 4 };
 const FPS: Record<HeroPose, number> = { idle: V.idleFps, sneak: V.sneakFps, run: V.runFps };
 
-/** 0-based run frames where a foot plants (dust puff). */
+/** 0-based run frames where a foot plants (dust puff + footstep noise). */
 export const RUN_FOOTFALL_FRAMES: readonly number[] = [1, 3];
+/** 0-based sneak frames where a foot plants (quiet footstep noise). */
+export const SNEAK_FOOTFALL_FRAMES: readonly number[] = [1, 3];
 
 /** Frame-local layout (logical px). Origin top-left of a frame. */
 const F = V.frameSize;

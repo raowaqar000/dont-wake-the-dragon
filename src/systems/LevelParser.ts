@@ -1,4 +1,12 @@
-import { PORTAL_SYMBOLS, RESERVED_TILES, TILE, type LevelData } from '../levels/types';
+import {
+  DRAGON_FOOTPRINTS,
+  PORTAL_SYMBOLS,
+  RESERVED_TILES,
+  TILE,
+  type DragonFacing,
+  type DragonOrientation,
+  type LevelData,
+} from '../levels/types';
 
 /**
  * Pure grid parsing (no Phaser, no config), so the level validator can run it
@@ -46,8 +54,20 @@ export interface ParsedLevel {
   gems: TilePos[];
   /** Chests are solid (they get a physics body) but are NOT walls here. */
   chests: TilePos[];
+  /** Dragons are solid (one physics body each) but are NOT walls here. */
+  dragons: DragonSpawn[];
   /** Merged wall rectangles. */
   wallRects: TileRect[];
+}
+
+export interface DragonSpawn {
+  index: number;
+  /** Footprint in tiles. */
+  rect: TileRect;
+  orientation: DragonOrientation;
+  facing: DragonFacing;
+  /** Hearing multiplier override (undefined = default). */
+  hearing?: number;
 }
 
 const PORTALS = new Set<string>(PORTAL_SYMBOLS);
@@ -69,6 +89,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
   const coins: TilePos[] = [];
   const gems: TilePos[] = [];
   const chests: TilePos[] = [];
+  const dragonTiles: TilePos[] = [];
   const warned = new Set<string>();
 
   grid.forEach((row, y) => {
@@ -91,6 +112,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
       else if (ch === TILE.coin) coins.push({ x, y });
       else if (ch === TILE.gem) gems.push({ x, y });
       else if (ch === TILE.chest) chests.push({ x, y });
+      else if (ch === TILE.dragon) dragonTiles.push({ x, y });
       else if (PORTALS.has(ch)) {
         const list = portalTiles.get(ch) ?? [];
         list.push({ x, y });
@@ -140,16 +162,16 @@ export function parseLevel(data: LevelData): ParsedLevel {
     coins,
     gems,
     chests,
+    dragons: groupDragons(data, dragonTiles, wall),
     wallRects: mergeWalls(wall),
   };
 }
 
-/** Flood-fills touching spike tiles (4-way) into groups and attaches overrides. */
-function groupSpikes(data: LevelData, tiles: TilePos[]): SpikeGroup[] {
+/** 4-way flood fill of touching tiles. */
+function floodGroups(tiles: TilePos[]): TilePos[][] {
   const key = (t: TilePos) => `${t.x},${t.y}`;
   const remaining = new Map(tiles.map((t) => [key(t), t]));
-  const groups: SpikeGroup[] = [];
-
+  const groups: TilePos[][] = [];
   for (const seed of tiles) {
     if (!remaining.has(key(seed))) continue;
     const group: TilePos[] = [];
@@ -167,8 +189,58 @@ function groupSpikes(data: LevelData, tiles: TilePos[]): SpikeGroup[] {
         }
       }
     }
-    groups.push({ index: groups.length, tiles: group });
+    groups.push(group);
   }
+  return groups;
+}
+
+/** Touching 'D' tiles form one dragon; each must be a full rectangle of a known footprint. */
+function groupDragons(data: LevelData, tiles: TilePos[], wall: boolean[][]): DragonSpawn[] {
+  const dragons: DragonSpawn[] = [];
+  for (const group of floodGroups(tiles)) {
+    const x0 = Math.min(...group.map((t) => t.x));
+    const y0 = Math.min(...group.map((t) => t.y));
+    const w = Math.max(...group.map((t) => t.x)) - x0 + 1;
+    const h = Math.max(...group.map((t) => t.y)) - y0 + 1;
+    const orientation = (Object.keys(DRAGON_FOOTPRINTS) as DragonOrientation[]).find(
+      (o) => DRAGON_FOOTPRINTS[o].w === w && DRAGON_FOOTPRINTS[o].h === h,
+    );
+    if (!orientation || group.length !== w * h) {
+      const sizes = Object.values(DRAGON_FOOTPRINTS).map((f) => `${f.w}x${f.h}`).join(' or ');
+      throw new Error(`[${data.id}] dragon at ${x0},${y0} is not a full ${sizes} rectangle (found ${group.length} tiles in ${w}x${h})`);
+    }
+    const rect = { x: x0, y: y0, w, h };
+    dragons.push({ index: dragons.length, rect, orientation, facing: autoFacing(rect, wall) });
+  }
+
+  for (const o of data.dragonOverrides ?? []) {
+    const d = dragons.find((dr) => o.x >= dr.rect.x && o.x < dr.rect.x + dr.rect.w && o.y >= dr.rect.y && o.y < dr.rect.y + dr.rect.h);
+    if (!d) throw new Error(`[${data.id}] dragonOverride at ${o.x},${o.y} is not on a dragon tile`);
+    if (o.facing) d.facing = o.facing;
+    if (o.hearing !== undefined) d.hearing = o.hearing;
+  }
+  return dragons;
+}
+
+/** Head points to the side with more open floor (up to 3 tiles out, across the dragon's rows). */
+function autoFacing(r: TileRect, wall: boolean[][]): DragonFacing {
+  const openCount = (dir: -1 | 1) => {
+    let n = 0;
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let i = 1; i <= 3; i++) {
+        const x = dir < 0 ? r.x - i : r.x + r.w - 1 + i;
+        if (wall[y]?.[x] !== false) break;
+        n++;
+      }
+    }
+    return n;
+  };
+  return openCount(1) >= openCount(-1) ? 'right' : 'left';
+}
+
+/** Flood-fills touching spike tiles (4-way) into groups and attaches overrides. */
+function groupSpikes(data: LevelData, tiles: TilePos[]): SpikeGroup[] {
+  const groups: SpikeGroup[] = floodGroups(tiles).map((group, index) => ({ index, tiles: group }));
 
   for (const o of data.spikeOverrides ?? []) {
     const g = groups.find((gr) => gr.tiles.some((t) => t.x === o.x && t.y === o.y));

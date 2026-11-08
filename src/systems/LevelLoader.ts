@@ -39,6 +39,12 @@ export class LevelLoader {
     for (const r of parsed.wallRects) addRect(r.x, r.y, r.w, r.h);
     // Chests are solid from the start.
     for (const c of parsed.chests) addRect(c.x, c.y, 1, 1);
+    // Dragons: one body each, a little smaller than the footprint (round body).
+    const inset = TUNING.dragon.bodyInset;
+    for (const d of parsed.dragons) {
+      const r = d.rect;
+      walls.add(scene.add.zone((r.x + r.w / 2) * ts, (r.y + r.h / 2) * ts, r.w * ts - inset * 2, r.h * ts - inset * 2));
+    }
     walls.refresh();
 
     return {
@@ -64,6 +70,7 @@ export class LevelLoader {
     );
     const t = report.treasure;
     console.info(`[${data.id}] treasure: ${t.coins} coins, ${t.gems} gems, ${t.chests} chests, max loot ${t.maxLoot}`);
+    console.info(`[${data.id}] dragons: ${parsed.dragons.map((d) => `${d.rect.x},${d.rect.y} ${d.facing}`).join(' | ') || 'none'}`);
   }
 
   /** Draws every tile once into a single RenderTexture (one draw call per frame). */

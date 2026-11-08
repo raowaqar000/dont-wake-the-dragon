@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SCENE_KEYS, TEXTURE_KEYS, TUNING } from '../config';
+import { createDragonTextures } from '../systems/DragonTextureFactory';
 import { createHeroAssets } from '../systems/HeroTextureFactory';
 import { createTrapTextures } from '../systems/TrapTextureFactory';
 import { createTreasureTextures } from '../systems/TreasureTextureFactory';
@@ -15,6 +16,7 @@ export class BootScene extends Phaser.Scene {
     createHeroAssets(this);
     createTrapTextures(this);
     createTreasureTextures(this);
+    createDragonTextures(this);
     this.scene.start(SCENE_KEYS.game);
   }
 

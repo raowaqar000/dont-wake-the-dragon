@@ -26,6 +26,8 @@ export class PortalSystem {
     private readonly rig: CameraRig,
     /** True once the run is over; teleports never start or finish into play then. */
     private readonly isOver: () => boolean,
+    /** Called at the entry portal when the jump starts, and at the exit when he lands. */
+    private readonly onPortalNoise?: (x: number, y: number) => void,
   ) {
     const ts = TUNING.level.tileSize;
     const center = (t: { x: number; y: number }) => [(t.x + 0.5) * ts, (t.y + 0.5) * ts] as const;
@@ -73,10 +75,12 @@ export class PortalSystem {
     this.player.freeze();
     to.setArmed(false, Infinity); // real cooldown starts when he lands
     from.burst();
+    this.onPortalNoise?.(from.x, from.y);
 
     this.visual.shrinkOut(P.shrinkMs, () => {
       this.player.teleportTo(to.x, to.y);
       to.burst();
+      this.onPortalNoise?.(to.x, to.y);
       this.rig.panToTarget();
       this.scene.time.delayedCall(P.popDelayMs, () => {
         this.visual.popIn(P.popMs, () => {

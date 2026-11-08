@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import {
   RUN_FOOTFALL_FRAMES,
+  SNEAK_FOOTFALL_FRAMES,
   heroAnimKey,
   heroFootOffset,
   heroFrameInfo,
@@ -16,6 +17,9 @@ const M = TUNING.movement;
 
 export type Facing = 'down' | 'up' | 'left' | 'right';
 
+/** A foot planted. (x, y) = feet position in world px. */
+export type FootstepListener = (pose: 'sneak' | 'run', x: number, y: number) => void;
+
 /**
  * What the player looks like. Follows the (invisible) physics Player and
  * picks direction + animation from its real velocity. Knows nothing about input.
@@ -23,6 +27,8 @@ export type Facing = 'down' | 'up' | 'left' | 'right';
 export class PlayerVisual {
   public facing: Facing = 'down';
   public pose: HeroPose = 'idle';
+  /** Called on every footfall frame while sneaking or running (NoiseSystem hooks in here). */
+  public onFootstep: FootstepListener | null = null;
 
   private readonly root: Phaser.GameObjects.Container;
   private readonly body: Phaser.GameObjects.Sprite;
@@ -33,6 +39,8 @@ export class PlayerVisual {
   private readonly dust?: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Effect offsets layered on top of the normal look (teleport, hit, fall). */
   private readonly fx = { scale: 1, alpha: 1, angle: 0, dx: 0, dy: 0 };
+  /** Charred by fire: 0 = normal, 1 = fully dark. */
+  private readonly charState = { t: 0 };
   private readonly scene: Phaser.Scene;
 
   constructor(
@@ -165,6 +173,25 @@ export class PlayerVisual {
     });
   }
 
+  /** Burnt by dragon fire: darkens to `color` over `ms` and stays that way. */
+  char(color: number, ms: number): void {
+    const from = Phaser.Display.Color.IntegerToColor(0xffffff);
+    const to = Phaser.Display.Color.IntegerToColor(color);
+    this.body.anims.pause();
+    this.scene.tweens.add({
+      targets: this.charState,
+      t: 1,
+      duration: ms,
+      ease: 'Quad.easeOut',
+      onUpdate: () => {
+        const c = Phaser.Display.Color.Interpolate.ColorWithColor(from, to, 100, this.charState.t * 100);
+        const tint = Phaser.Display.Color.GetColor(c.r, c.g, c.b);
+        this.body.setTint(tint);
+        this.sack.setTint(tint);
+      },
+    });
+  }
+
   /** Fall into a pit at (x, y): slide to its center while spinning and shrinking. */
   fallInto(x: number, y: number, ms: number): void {
     this.scene.tweens.add({
@@ -205,10 +232,16 @@ export class PlayerVisual {
   }
 
   private onFrame(_anim: Phaser.Animations.Animation, frame: Phaser.Animations.AnimationFrame): void {
-    if (!this.dust) return;
     const info = heroFrameInfo(frame.textureFrame);
-    if (!info || info.pose !== 'run' || !RUN_FOOTFALL_FRAMES.includes(info.index)) return;
+    if (!info || info.pose === 'idle') return;
+    const frames = info.pose === 'run' ? RUN_FOOTFALL_FRAMES : SNEAK_FOOTFALL_FRAMES;
+    if (!frames.includes(info.index)) return;
+    // Only real movement makes noise (the animation can trail the state by a frame).
+    if (this.pose !== info.pose) return;
 
+    this.onFootstep?.(info.pose, this.player.x, this.player.y + TUNING.noise.feetOffsetY);
+
+    if (!this.dust || info.pose !== 'run') return;
     const foot = heroFootOffset(info.dir, info.index);
     const flip = this.facing === 'left' ? -1 : 1;
     this.dust.explode(
