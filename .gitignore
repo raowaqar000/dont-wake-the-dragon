@@ -6,3 +6,20 @@ android/build
 android/.gradle
 android/local.properties
 *.log
+
+# Vite / TypeScript
+*.local
+.env.*.local
+.vite
+*.tsbuildinfo
+
+# Capacitor / Android (android/.gitignore covers the rest)
+android/app/src/main/assets/public
+android/.idea
+*.keystore
+*.jks
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
