@@ -5,6 +5,8 @@ import { approachVelocity, resolveMoveState, speedForState, type MoveState } fro
 export class Player extends Phaser.Physics.Arcade.Sprite {
   /** Current movement mode, read by other systems (noise, dragon, UI...). */
   public moveState: MoveState = 'idle';
+  /** When frozen, input is ignored and the player stands still. */
+  public frozen = false;
 
   private readonly currentVelocity = new Phaser.Math.Vector2();
   private readonly targetVelocity = new Phaser.Math.Vector2();
@@ -14,7 +16,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
-    const r = TUNING.player.radius;
+    const r = TUNING.player.bodyRadius;
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setCircle(r, this.width / 2 - r, this.height / 2 - r);
     this.setCollideWorldBounds(true);
@@ -26,6 +28,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
    * @param strength 0..1 joystick push amount
    */
   applyInput(direction: Phaser.Math.Vector2, strength: number, deltaMs: number): void {
+    if (this.frozen) return;
     this.moveState = resolveMoveState(strength, this.moveState);
     const speed = speedForState(this.moveState);
     this.targetVelocity.set(direction.x * speed, direction.y * speed);
@@ -35,6 +38,12 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     this.currentVelocity.set(body.velocity.x, body.velocity.y);
     approachVelocity(this.currentVelocity, this.targetVelocity, deltaMs);
     this.setVelocity(this.currentVelocity.x, this.currentVelocity.y);
+  }
+
+  freeze(): void {
+    this.frozen = true;
+    this.moveState = 'idle';
+    this.setVelocity(0, 0);
   }
 
   /** Actual speed in px/s. */

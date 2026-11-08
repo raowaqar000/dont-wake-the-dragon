@@ -11,6 +11,7 @@ export const SCENE_KEYS = {
 
 export const TEXTURE_KEYS = {
   player: 'player',
+  darkness: 'darkness',
 } as const;
 
 export const COLORS = {
@@ -20,8 +21,10 @@ export const COLORS = {
 /** Every tunable gameplay/UI number lives here. */
 export const TUNING = {
   player: {
-    /** Visual + physics radius in px (28px diameter: tiny on screen). */
+    /** Visual radius in px (28px diameter: tiny on screen). */
     radius: 14,
+    /** Physics circle radius. Slightly smaller than the visual so corners feel rounded; lower it (e.g. 12) if the player snags. */
+    bodyRadius: 13,
     fillColor: 0xffd23f,
     outlineColor: 0x8a6400,
     outlineWidth: 3,
@@ -59,6 +62,58 @@ export const TUNING = {
     depth: 1000,
   },
 
+  level: {
+    tileSize: 48,
+    floorColor: 0x3a3540,
+    /** Random per-tile brightness change (+/- fraction). */
+    floorShadeVariation: 0.08,
+    wallColor: 0x1b1720,
+    wallShadeVariation: 0.06,
+    /** Lighter top edge of a wall where floor is above it. */
+    wallEdgeColor: 0x5a5262,
+    wallEdgeHeight: 6,
+    depth: 0,
+  },
+
+  camera: {
+    /** Follow smoothing per frame (0..1, 1 = locked to the player). */
+    lerp: 0.1,
+  },
+
+  lighting: {
+    enabled: true,
+    /** Distance from the player where the darkness reaches full strength (px). */
+    lightRadius: 300,
+    /** Fraction of lightRadius used for the fade (rest is fully lit). */
+    softness: 0.6,
+    /** Max darkness alpha far from the player (0 = none, 1 = pitch black). */
+    darkness: 0.85,
+    color: 0x05040a,
+    depth: 100,
+  },
+
+  exit: {
+    color: 0xffe7a3,
+    glowAlpha: 0.9,
+    pulseMs: 900,
+    pulseMinAlpha: 0.55,
+    pulseScale: 1.12,
+    labelColor: '#ffe7a3',
+    labelFontSize: 26,
+    labelOffsetY: 6,
+  },
+
+  overlay: {
+    backdropAlpha: 0.6,
+    buttonWidth: 420,
+    buttonHeight: 140,
+    buttonColor: 0xffd23f,
+    buttonPressedColor: 0xc9a22a,
+    /** Button ignores taps for this long after the overlay appears. */
+    inputDelayMs: 350,
+    depth: 3000,
+  },
+
   input: {
     /** Extra touch pointers on top of Phaser's default (total = 1 + this). */
     extraPointers: 2,
@@ -66,6 +121,8 @@ export const TUNING = {
 
   debug: {
     enabled: true,
+    /** Draw Arcade physics bodies (walls, player, exit). */
+    showBodies: false,
     fontSize: 22,
     color: '#9fe870',
     /** How often the debug text refreshes (ms). */
@@ -90,7 +147,7 @@ export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phase
       default: 'arcade',
       arcade: {
         gravity: { x: 0, y: 0 },
-        debug: false,
+        debug: TUNING.debug.showBodies,
       },
     },
     input: {

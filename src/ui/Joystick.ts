@@ -19,6 +19,7 @@ export class Joystick {
   private readonly knob: Phaser.GameObjects.Graphics;
   private readonly origin = new Phaser.Math.Vector2();
   private pointerId: number | null = null;
+  private enabled = true;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -56,6 +57,12 @@ export class Joystick {
     return this.pointerId !== null;
   }
 
+  /** Disabling also releases the current touch (e.g. when a menu opens). */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) this.release();
+  }
+
   /** Call every frame. Safety net for touches the browser cancelled without a pointerup. */
   update(): void {
     if (this.pointerId === null) return;
@@ -64,6 +71,7 @@ export class Joystick {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer, over: Phaser.GameObjects.GameObject[]): void {
+    if (!this.enabled) return;
     if (this.pointerId !== null) return; // already controlled by another finger
     if (over.length > 0) return; // touch landed on an interactive object (e.g. a button)
     if (pointer.y < this.scene.scale.height * J.activationZoneTop) return;
