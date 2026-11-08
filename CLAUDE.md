@@ -73,6 +73,13 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 
 Coins or gems on top of another tile (for example a gem on a crumbling floor) go in `LevelData.treasureOnTiles`. If that floor collapses first, the treasure is lost.
 
+## Git rules
+
+- Always work on `main`. Never create branches.
+- Run no git commands at all (no commits, no pushes, nothing during or after a feature) until the user says **"kill"**.
+- **"kill"** means: `git add .`, then `git commit` with a short feature message (for example "Feature 5: treasure pickups, chests, loot sack and HUD"), then `git push origin main`.
+- Remote: `origin` = github.com/raowaqar000/dont-wake-the-dragon.
+
 ## Working rules for Claude
 
 - **Mobile-only, touch-only.** No keyboard or mouse controls (keyboard is disabled in the game config). Use multi-touch pointers (`TUNING.input.extraPointers`).
