@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { SCENE_KEYS, TUNING } from '../config';
 import { Player } from '../entities/Player';
+import { PlayerVisual } from '../entities/PlayerVisual';
 import { ExitZone } from '../entities/ExitZone';
 import { level01 } from '../levels/level01';
 import type { LevelData } from '../levels/types';
@@ -40,7 +41,7 @@ export class GameScene extends Phaser.Scene {
     const exit = new ExitZone(this, built.exitRect);
 
     this.player = new Player(this, built.playerStart.x, built.playerStart.y);
-    this.player.setDepth(10);
+    new PlayerVisual(this, this.player);
     this.physics.add.collider(this.player, built.walls);
     this.physics.add.overlap(this.player, exit.zone, this.onEscape, undefined, this);
 

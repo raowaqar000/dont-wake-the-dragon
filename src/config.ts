@@ -12,6 +12,9 @@ export const SCENE_KEYS = {
 export const TEXTURE_KEYS = {
   player: 'player',
   darkness: 'darkness',
+  hero: 'hero',
+  heroSack: 'hero_sack',
+  dust: 'dust',
 } as const;
 
 export const COLORS = {
@@ -21,13 +24,88 @@ export const COLORS = {
 /** Every tunable gameplay/UI number lives here. */
 export const TUNING = {
   player: {
-    /** Visual radius in px (28px diameter: tiny on screen). */
+    /** Size of the (invisible) physics sprite's placeholder circle texture. */
     radius: 14,
     /** Physics circle radius. Slightly smaller than the visual so corners feel rounded; lower it (e.g. 12) if the player snags. */
     bodyRadius: 13,
     fillColor: 0xffd23f,
     outlineColor: 0x8a6400,
     outlineWidth: 3,
+  },
+
+  /** Treasure hunter look + animation. Purely visual; physics lives in `player`. */
+  playerVisual: {
+    /** Logical frame size in px (character is ~43px tall inside it before displayScale). */
+    frameSize: 48,
+    /** Textures are drawn at this multiple and scaled down, so they stay crisp. */
+    textureResolution: 2,
+    /** On-screen scale of the character (0.88 -> ~38px tall). */
+    displayScale: 0.88,
+    /** Shift the visual relative to the physics body center (px). 0 = centered. */
+    offsetY: 0,
+    outlineWidth: 2.2,
+    depth: 10,
+
+    colors: {
+      outline: 0x0b0a0d,
+      cloak: 0x2f6b3a,
+      cloakShade: 0x1f4a28,
+      cloakLight: 0x4a9a58,
+      skin: 0xf0c49a,
+      eyes: 0x1a1208,
+      gloves: 0x6b4a2e,
+      boots: 0x4a3424,
+      bootsShade: 0x33241a,
+      clasp: 0xffd23f,
+      sack: 0xa07a4a,
+      sackShade: 0x7a5a35,
+      sackLight: 0xc89a62,
+      rope: 0xdcc080,
+    },
+
+    /** Base animation frame rates (fps) at reference speed. */
+    idleFps: 2.5,
+    sneakFps: 7,
+    runFps: 12,
+    /** Below this actual speed (px/s) the idle animation plays. */
+    animMinSpeed: 12,
+    /** Animation speed = actual speed / state speed, clamped to this range. */
+    timeScaleMin: 0.5,
+    timeScaleMax: 1.6,
+
+    /** Sneak: body height multiplier (crouch) and foot travel (px). */
+    sneakCrouch: 0.9,
+    sneakStride: 2,
+    /** Run: foot travel, forward lean and cloak hem flap (px). */
+    runStride: 4.5,
+    runLean: 3,
+    runFlap: 2.5,
+    /** How much more the other axis must dominate before facing switches (stops diagonal flicker). */
+    facingHysteresis: 0.3,
+
+    sack: {
+      /** Grows with treasure later. */
+      scale: 1,
+      /** Attach point relative to the frame center, per direction (px, before displayScale). */
+      offsets: {
+        down: { x: 7, y: -10 },
+        up: { x: 0, y: 4 },
+        side: { x: -10, y: -2 },
+      },
+    },
+
+    dust: {
+      enabled: true,
+      /** Puffs per footstep while running. */
+      count: 2,
+      lifespanMs: 450,
+      speedMin: 8,
+      speedMax: 26,
+      scaleStart: 0.5,
+      scaleEnd: 1.3,
+      alpha: 0.45,
+      color: 0xb8aea0,
+    },
   },
 
   movement: {

@@ -20,6 +20,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setCircle(r, this.width / 2 - r, this.height / 2 - r);
     this.setCollideWorldBounds(true);
+    // Physics only; PlayerVisual draws the character.
+    this.setVisible(false);
   }
 
   /**

@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { SCENE_KEYS, TEXTURE_KEYS, TUNING } from '../config';
+import { createHeroAssets } from '../systems/HeroTextureFactory';
 
 /** Prepares shared resources (placeholder textures for now) and starts the game. */
 export class BootScene extends Phaser.Scene {
@@ -9,6 +10,7 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     this.createPlaceholderTextures();
+    createHeroAssets(this);
     this.scene.start(SCENE_KEYS.game);
   }
 
