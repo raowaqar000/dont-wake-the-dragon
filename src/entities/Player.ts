@@ -7,6 +7,8 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   public moveState: MoveState = 'idle';
   /** When frozen, input is ignored and the player stands still. */
   public frozen = false;
+  /** Scales sneak/run speed. Hook for the greed mechanic (set from LootSystem.speedMultiplier). */
+  public speedMultiplier = 1;
 
   private readonly currentVelocity = new Phaser.Math.Vector2();
   private readonly targetVelocity = new Phaser.Math.Vector2();
@@ -32,7 +34,7 @@ export class Player extends Phaser.Physics.Arcade.Sprite {
   applyInput(direction: Phaser.Math.Vector2, strength: number, deltaMs: number): void {
     if (this.frozen) return;
     this.moveState = resolveMoveState(strength, this.moveState);
-    const speed = speedForState(this.moveState);
+    const speed = speedForState(this.moveState) * this.speedMultiplier;
     this.targetVelocity.set(direction.x * speed, direction.y * speed);
 
     // Start from the body's real velocity so collisions (walls, bounds) are respected.

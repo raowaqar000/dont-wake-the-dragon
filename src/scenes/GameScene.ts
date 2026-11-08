@@ -9,11 +9,14 @@ import { CameraRig } from '../systems/CameraRig';
 import { FAIL_REASONS, FailSystem } from '../systems/FailSystem';
 import { LevelLoader } from '../systems/LevelLoader';
 import { Lighting } from '../systems/Lighting';
+import { LOOT_EVENTS, LootSystem, sackScaleFor, type LootChange } from '../systems/LootSystem';
+import { loadBestLoot, saveBestLoot } from '../systems/SaveData';
 import { PortalSystem } from '../systems/PortalSystem';
 import { TrapSystem } from '../systems/TrapSystem';
 import { Joystick } from '../ui/Joystick';
 import { DebugOverlay } from '../ui/DebugOverlay';
 import { EscapeOverlay } from '../ui/EscapeOverlay';
+import { Hud } from '../ui/Hud';
 
 export class GameScene extends Phaser.Scene {
   private player!: Player;
@@ -21,6 +24,8 @@ export class GameScene extends Phaser.Scene {
   private fail!: FailSystem;
   private portals!: PortalSystem;
   private traps!: TrapSystem;
+  private loot!: LootSystem;
+  private hud!: Hud;
   private debug?: DebugOverlay;
   private level: LevelData = level01;
   /** Time of the first joystick touch; null until the player starts. */
@@ -67,16 +72,31 @@ export class GameScene extends Phaser.Scene {
       joystick: this.joystick,
       camera: rig.world,
       onRetry: () => this.scene.restart(),
+      // Loot only counts if you escape.
+      resultLines: () => [{ text: `Loot lost: ${this.loot.loot}`, color: TUNING.hud.lootColor, fontSize: 44 }],
     });
 
     this.portals = new PortalSystem(this, built.parsed.portals, this.player, visual, rig, () => this.fail.isOver);
 
+    this.loot = new LootSystem(this, built.parsed, {
+      player: this.player,
+      camera: rig.world,
+      isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+    });
+    this.loot.on(LOOT_EVENTS.changed, (e: LootChange) => {
+      visual.growSack(sackScaleFor(e.total));
+      this.player.speedMultiplier = this.loot.speedMultiplier;
+    });
+
     this.traps = new TrapSystem(this, built.parsed, {
       player: this.player,
       addWallTile: built.addWallTile,
+      onFloorCollapsed: (tile) => this.loot.onFloorCollapsed(tile),
       onCaught: (kind, effect) => this.fail.fail(kind === 'pit' ? FAIL_REASONS.pit : FAIL_REASONS.trap, effect),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
     });
+
+    this.hud = new Hud(this, this.loot);
 
     if (TUNING.debug.enabled) {
       this.debug = new DebugOverlay(this);
@@ -89,6 +109,8 @@ export class GameScene extends Phaser.Scene {
     this.player.applyInput(this.joystick.direction, this.joystick.strength, delta);
     this.portals.update();
     this.traps.update();
+    this.loot.update(delta);
+    if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.time.now - this.startTime);
     this.debug?.update(delta, this.player, this.joystick, () => this.debugLines());
   }
 
@@ -98,6 +120,7 @@ export class GameScene extends Phaser.Scene {
       `tile:  ${Math.floor(this.player.x / ts)},${Math.floor(this.player.y / ts)}`,
       this.portals.debugLine,
       this.traps.debugLine,
+      this.loot.debugLine,
     ];
   }
 
@@ -107,6 +130,26 @@ export class GameScene extends Phaser.Scene {
     const elapsed = this.startTime === null ? 0 : this.time.now - this.startTime;
     this.player.freeze();
     this.joystick.setEnabled(false);
-    new EscapeOverlay(this, elapsed, () => this.scene.restart());
+    this.hud.setTime(elapsed);
+
+    const loot = this.loot.loot;
+    const previousBest = loadBestLoot(this.level.id);
+    const newBest = loot > previousBest;
+    if (newBest) saveBestLoot(this.level.id, loot);
+
+    new EscapeOverlay(
+      this,
+      {
+        timeMs: elapsed,
+        loot,
+        gems: this.loot.gemsFound,
+        gemsTotal: this.loot.gemsTotal,
+        chests: this.loot.chestsFound,
+        chestsTotal: this.loot.chestsTotal,
+        previousBest,
+        newBest,
+      },
+      () => this.scene.restart(),
+    );
   }
 }

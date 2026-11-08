@@ -4,11 +4,21 @@ import { markUi } from '../systems/CameraRig';
 
 const O = TUNING.overlay;
 
+/** A result line with its own style (e.g. "NEW BEST!"). */
+export interface ResultLine {
+  text: string;
+  color?: string;
+  fontSize?: number;
+  bold?: boolean;
+  /** Gentle scale pulse to draw the eye. */
+  pulse?: boolean;
+}
+
 export interface ResultOverlayOptions {
   title: string;
   titleColor: string;
-  /** Smaller lines under the title (time, reason...). */
-  lines?: string[];
+  /** Smaller lines under the title (time, loot, reason...). */
+  lines?: (string | ResultLine)[];
   buttonLabel: string;
   onPress: () => void;
 }
@@ -45,19 +55,33 @@ export class ResultOverlay {
     if (title.width > maxW) title.setScale(maxW / title.width);
     objects.push(title);
 
-    (opts.lines ?? []).forEach((line, i) => {
-      objects.push(
-        scene.add
-          .text(cx, cy - 90 + i * 60, line, { fontFamily: 'sans-serif', fontSize: '48px', color: '#ffffff' })
-          .setOrigin(0.5),
-      );
+    const lines = opts.lines ?? [];
+    const pulsing: Phaser.GameObjects.Text[] = [];
+    lines.forEach((raw, i) => {
+      const line: ResultLine = typeof raw === 'string' ? { text: raw } : raw;
+      const t = scene.add
+        .text(cx, cy - 90 + i * O.lineGap, line.text, {
+          fontFamily: 'sans-serif',
+          fontSize: `${line.fontSize ?? 48}px`,
+          fontStyle: line.bold ? 'bold' : 'normal',
+          color: line.color ?? '#ffffff',
+          stroke: '#000000',
+          strokeThickness: line.bold ? 6 : 0,
+        })
+        .setOrigin(0.5);
+      if (t.width > maxW) t.setScale(maxW / t.width);
+      if (line.pulse) pulsing.push(t);
+      objects.push(t);
     });
 
+    // Button sits below the last line (same spot as before for short cards).
+    const lastLineY = cy - 90 + Math.max(0, lines.length - 1) * O.lineGap;
+    const buttonY = Math.max(cy + 120, lastLineY + 40 + O.buttonHeight / 2);
     const button = scene.add
-      .rectangle(cx, cy + 120, O.buttonWidth, O.buttonHeight, O.buttonColor)
+      .rectangle(cx, buttonY, O.buttonWidth, O.buttonHeight, O.buttonColor)
       .setStrokeStyle(4, 0xffffff, 0.8);
     const label = scene.add
-      .text(cx, cy + 120, opts.buttonLabel, {
+      .text(cx, buttonY, opts.buttonLabel, {
         fontFamily: 'sans-serif',
         fontSize: '52px',
         fontStyle: 'bold',
@@ -71,6 +95,17 @@ export class ResultOverlay {
     }
     label.setDepth(O.depth + 1);
     markUi(scene, ...objects);
+
+    for (const t of pulsing) {
+      scene.tweens.add({
+        targets: t,
+        scale: t.scale * 1.12,
+        duration: O.newBestPulseMs,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
     // Only a tap that *starts* on the button counts, so a finger still held from
     // the joystick can't trigger it by lifting. Small delay avoids accidental taps.

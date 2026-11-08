@@ -4,6 +4,7 @@ import type { ParsedLevel, TilePos } from './LevelParser';
  * Pure path search over a parsed level (no Phaser), run at load and from the
  * command line. Movement is 8-way (diagonals only when both side tiles are open,
  * like the real circle body). Walking onto a portal tile puts you on its partner.
+ * Chests are solid; a chest counts as reachable when a tile beside it (4-way) is.
  */
 
 export interface PathResult {
@@ -13,6 +14,20 @@ export interface PathResult {
   path: TilePos[];
 }
 
+/** Treasure counts; maxLoot only when values were passed to validateLevel. */
+export interface TreasureTotals {
+  coins: number;
+  gems: number;
+  chests: number;
+  maxLoot: number;
+}
+
+export interface TreasureValues {
+  coin: number;
+  gem: number;
+  chest: number;
+}
+
 export interface LevelReport {
   /** Shortest route with every crumble tile intact. */
   shortest: PathResult;
@@ -20,20 +35,47 @@ export interface LevelReport {
   shortestCollapsed: PathResult;
   /** Floor tiles that can never be reached from the start. */
   unreachable: TilePos[];
+  /** Treasure that can never be collected. */
+  unreachableTreasure: TilePos[];
+  treasure: TreasureTotals;
   /** Human-readable problems; empty = level is fine. */
   errors: string[];
 }
 
-export function validateLevel(p: ParsedLevel): LevelReport {
+export function validateLevel(p: ParsedLevel, values?: TreasureValues): LevelReport {
   const intact = search(p, false);
   const collapsed = search(p, true);
+  const at = (x: number, y: number) => y * p.cols + x;
+  const chestSet = new Set(p.chests.map((c) => at(c.x, c.y)));
 
   const unreachable: TilePos[] = [];
   for (let y = 0; y < p.rows; y++) {
     for (let x = 0; x < p.cols; x++) {
-      if (!p.wall[y][x] && !intact.reached[y * p.cols + x]) unreachable.push({ x, y });
+      if (!p.wall[y][x] && !chestSet.has(at(x, y)) && !intact.reached[at(x, y)]) unreachable.push({ x, y });
     }
   }
+
+  const unreachableTreasure: TilePos[] = [...p.coins, ...p.gems].filter((t) => !intact.reached[at(t.x, t.y)]);
+  for (const c of p.chests) {
+    const side = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ].some(([dx, dy]) => {
+      const x = c.x + dx;
+      const y = c.y + dy;
+      return x >= 0 && y >= 0 && x < p.cols && y < p.rows && intact.reached[at(x, y)] && !chestSet.has(at(x, y));
+    });
+    if (!side) unreachableTreasure.push(c);
+  }
+
+  const treasure: TreasureTotals = {
+    coins: p.coins.length,
+    gems: p.gems.length,
+    chests: p.chests.length,
+    maxLoot: values ? p.coins.length * values.coin + p.gems.length * values.gem + p.chests.length * values.chest : 0,
+  };
 
   const errors: string[] = [];
   if (!Number.isFinite(intact.result.length)) errors.push('exit is not reachable');
@@ -41,7 +83,17 @@ export function validateLevel(p: ParsedLevel): LevelReport {
   if (unreachable.length > 0) {
     errors.push(`${unreachable.length} floor tile(s) unreachable: ${unreachable.map((t) => `${t.x},${t.y}`).join(' ')}`);
   }
-  return { shortest: intact.result, shortestCollapsed: collapsed.result, unreachable, errors };
+  if (unreachableTreasure.length > 0) {
+    errors.push(`${unreachableTreasure.length} treasure(s) unreachable: ${unreachableTreasure.map((t) => `${t.x},${t.y}`).join(' ')}`);
+  }
+  return {
+    shortest: intact.result,
+    shortestCollapsed: collapsed.result,
+    unreachable,
+    unreachableTreasure,
+    treasure,
+    errors,
+  };
 }
 
 /** Seconds to walk `tiles` at `speedPx` px/s. */
@@ -57,6 +109,7 @@ function search(p: ParsedLevel, crumblesCollapsed: boolean): { result: PathResul
   const blocked = new Array<boolean>(n).fill(false);
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) blocked[idx(x, y)] = p.wall[y][x];
   if (crumblesCollapsed) for (const c of p.crumbles) blocked[idx(c.x, c.y)] = true;
+  for (const c of p.chests) blocked[idx(c.x, c.y)] = true;
 
   const partner = new Map<number, number>();
   for (const pr of p.portals) {

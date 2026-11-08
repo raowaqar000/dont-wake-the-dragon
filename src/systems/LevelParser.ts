@@ -41,6 +41,11 @@ export interface ParsedLevel {
   portals: PortalPair[];
   spikeGroups: SpikeGroup[];
   crumbles: TilePos[];
+  /** Coins and gems (from the grid and LevelData.treasureOnTiles). */
+  coins: TilePos[];
+  gems: TilePos[];
+  /** Chests are solid (they get a physics body) but are NOT walls here. */
+  chests: TilePos[];
   /** Merged wall rectangles. */
   wallRects: TileRect[];
 }
@@ -61,6 +66,9 @@ export function parseLevel(data: LevelData): ParsedLevel {
   const portalTiles = new Map<string, TilePos[]>();
   const spikeTiles: TilePos[] = [];
   const crumbles: TilePos[] = [];
+  const coins: TilePos[] = [];
+  const gems: TilePos[] = [];
+  const chests: TilePos[] = [];
   const warned = new Set<string>();
 
   grid.forEach((row, y) => {
@@ -80,6 +88,9 @@ export function parseLevel(data: LevelData): ParsedLevel {
       else if (ch === TILE.exit) exitTiles.push({ x, y });
       else if (ch === TILE.spikes) spikeTiles.push({ x, y });
       else if (ch === TILE.crumble) crumbles.push({ x, y });
+      else if (ch === TILE.coin) coins.push({ x, y });
+      else if (ch === TILE.gem) gems.push({ x, y });
+      else if (ch === TILE.chest) chests.push({ x, y });
       else if (PORTALS.has(ch)) {
         const list = portalTiles.get(ch) ?? [];
         list.push({ x, y });
@@ -98,6 +109,19 @@ export function parseLevel(data: LevelData): ParsedLevel {
     portals.push({ id, a: tiles[0], b: tiles[1] });
   }
 
+  // Treasure on top of other tiles: only on walkable tiles that hold nothing else.
+  const onTileOk = new Set<string>([TILE.floor, TILE.crumble, TILE.spikes]);
+  const placed = new Set<string>();
+  for (const t of data.treasureOnTiles ?? []) {
+    const ch = grid[t.y]?.[t.x];
+    if (ch === undefined) throw new Error(`[${data.id}] treasureOnTiles ${t.x},${t.y} is outside the grid`);
+    if (!onTileOk.has(ch)) throw new Error(`[${data.id}] treasureOnTiles ${t.x},${t.y} is on '${ch}' (needs '.', '%' or '^')`);
+    const key = `${t.x},${t.y}`;
+    if (placed.has(key)) throw new Error(`[${data.id}] treasureOnTiles has two items on ${key}`);
+    placed.add(key);
+    (t.kind === 'coin' ? coins : gems).push({ x: t.x, y: t.y });
+  }
+
   const ex0 = Math.min(...exitTiles.map((t) => t.x));
   const ey0 = Math.min(...exitTiles.map((t) => t.y));
   const ex1 = Math.max(...exitTiles.map((t) => t.x));
@@ -113,6 +137,9 @@ export function parseLevel(data: LevelData): ParsedLevel {
     portals,
     spikeGroups: groupSpikes(data, spikeTiles),
     crumbles,
+    coins,
+    gems,
+    chests,
     wallRects: mergeWalls(wall),
   };
 }

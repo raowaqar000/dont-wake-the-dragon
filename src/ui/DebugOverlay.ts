@@ -6,7 +6,7 @@ import type { Joystick } from './Joystick';
 
 const D = TUNING.debug;
 
-/** Small top-left readout: move state, FPS, joystick strength, speed, plus extra lines. */
+/** Small top-left readout below the HUD bar: move state, FPS, joystick strength, speed, plus extra lines. */
 export class DebugOverlay {
   private readonly scene: Phaser.Scene;
   private readonly text: Phaser.GameObjects.Text;
@@ -15,7 +15,7 @@ export class DebugOverlay {
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.text = scene.add
-      .text(16, 16, '', {
+      .text(16, D.top, '', {
         fontFamily: 'monospace',
         fontSize: `${D.fontSize}px`,
         color: D.color,

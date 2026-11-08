@@ -16,11 +16,16 @@
  *            override per group with LevelData.spikeOverrides.
  *   '%'      crumbling floor. Shakes once stepped on, then collapses into a pit (wall).
  *            Levels must stay finishable with every '%' collapsed (checked at load).
+ *   'c'      treasure: coin (floor tile, instant pickup)
+ *   'g'      treasure: gem / diamond (floor tile, instant pickup)
+ *   'T'      treasure: chest (solid). Stand still next to it to open it.
+ *            Every treasure must be reachable (checked at load).
+ *
+ * Treasure on top of another tile (e.g. a gem on a crumbling floor) goes in
+ * LevelData.treasureOnTiles instead of the grid. If that floor collapses first,
+ * the treasure falls in and is lost.
  *
  * Reserved for future features (parsed as floor for now, with a console warning):
- *   'c'  treasure: coin
- *   'g'  treasure: gem / diamond
- *   'T'  treasure: chest
  *   'D'  dragon spawn
  *   '~'  hazard (water / lava)
  *   'S'  special (unassigned)
@@ -39,15 +44,15 @@ export const TILE = {
   exit: 'E',
   spikes: '^',
   crumble: '%',
+  coin: 'c',
+  gem: 'g',
+  chest: 'T',
 } as const;
 
 /** Portal pair symbols, '1'..'9'. */
 export const PORTAL_SYMBOLS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'] as const;
 
 export const RESERVED_TILES = {
-  coin: 'c',
-  gem: 'g',
-  chest: 'T',
   dragon: 'D',
   hazard: '~',
   special: 'S',
@@ -68,10 +73,20 @@ export interface SpikeOverride {
   upMs?: number;
 }
 
+export type PickupKind = 'coin' | 'gem';
+
+/** A coin or gem placed on top of a non-floor tile (crumbling floor, spikes...). */
+export interface TreasureOnTile {
+  x: number;
+  y: number;
+  kind: PickupKind;
+}
+
 export interface LevelData {
   /** Stable id, also used to seed the floor shade variation. */
   id: string;
   name: string;
   grid: readonly string[];
   spikeOverrides?: readonly SpikeOverride[];
+  treasureOnTiles?: readonly TreasureOnTile[];
 }

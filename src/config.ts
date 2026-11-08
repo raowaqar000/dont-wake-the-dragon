@@ -19,6 +19,11 @@ export const TEXTURE_KEYS = {
   softGlow: 'soft_glow',
   spikes: 'spikes',
   crumble: 'crumble',
+  coin: 'coin',
+  gem: 'gem',
+  chest: 'chest',
+  chestOpen: 'chest_open',
+  sparkle: 'sparkle',
 } as const;
 
 export const COLORS = {
@@ -88,7 +93,7 @@ export const TUNING = {
     facingHysteresis: 0.3,
 
     sack: {
-      /** Grows with treasure later. */
+      /** Base scale. It grows with loot on top of this (TUNING.loot.sack). */
       scale: 1,
       /** Attach point relative to the frame center, per direction (px, before displayScale). */
       offsets: {
@@ -282,6 +287,174 @@ export const TUNING = {
     labelOffsetY: 6,
   },
 
+  /** Pickups and chests: values, look and feel. */
+  treasure: {
+    /** Logical size the textures are drawn at; they are drawn at 2x and scaled down. */
+    textureResolution: 2,
+    /** Items sit on the floor, under the player and the darkness. */
+    depth: 4,
+    /** Effects (sparkles, +N text, coin burst) draw above the darkness so they always read. */
+    fxDepth: 104,
+    /** Off-screen items skip their idle animation; margin around the camera view (px). */
+    cullMargin: 64,
+
+    coin: {
+      value: 10,
+      size: 20,
+      /** Collected when the player's center is this close to the coin's center (px). */
+      pickupRadius: 24,
+      /** One full spin (ms) and bob height (px) / period (ms). */
+      spinMs: 1100,
+      bobPx: 2.5,
+      bobMs: 1400,
+      color: 0xffcf3a,
+      shadeColor: 0xc8901a,
+      lightColor: 0xfff2a8,
+      outlineColor: 0x5a3a08,
+      sparkles: 6,
+      sparkleTint: 0xffe27a,
+      textColor: '#ffd23f',
+    },
+
+    gem: {
+      value: 50,
+      size: 24,
+      pickupRadius: 24,
+      bobPx: 2,
+      bobMs: 1800,
+      /** A star twinkles on the gem every so often (random in this range, ms). */
+      twinkleMinMs: 700,
+      twinkleMaxMs: 1800,
+      twinkleMs: 260,
+      color: 0x5ce1ff,
+      shadeColor: 0x2a8fd0,
+      lightColor: 0xd8fbff,
+      outlineColor: 0x0c2a4a,
+      sparkles: 14,
+      sparkleTint: 0x9ff0ff,
+      textColor: '#7fe9ff',
+    },
+
+    chest: {
+      value: 200,
+      /** Texture size (logical px). */
+      width: 40,
+      height: 34,
+      /** Standing still this long next to the chest opens it (ms). */
+      openMs: 1500,
+      /** Player center must be this close to the chest center to open it (px). */
+      openRadius: 60,
+      /** Player counts as standing still below this speed (px/s). Moving resets progress. */
+      idleSpeed: 12,
+      /** Progress ring around the chest. */
+      ringRadius: 32,
+      ringWidth: 6,
+      ringColor: 0xffd23f,
+      ringBackColor: 0x000000,
+      ringBackAlpha: 0.45,
+      ringFadeMs: 180,
+      ringDepth: 11,
+      /** Faint glow above the darkness (dimmer than portals and the exit). */
+      glowRadius: 46,
+      glowAlpha: 0.13,
+      glowColor: 0xffc860,
+      glowPulseMs: 1600,
+      /** Opening: lid squash, coin burst, sparkles and a small shake (world camera only). */
+      openSquashMs: 260,
+      burstCoins: 14,
+      burstSparkles: 18,
+      shakeMs: 200,
+      shakeIntensity: 0.006,
+      woodColor: 0x8a5a2b,
+      woodShadeColor: 0x5e3b1a,
+      woodLightColor: 0xb07a3e,
+      bandColor: 0xc9a24a,
+      outlineColor: 0x1a0f06,
+      insideColor: 0x2a1708,
+      goldColor: 0xffd23f,
+      sparkleTint: 0xffe27a,
+      textColor: '#ffe27a',
+    },
+
+    /** Pickup pop: scale up and fade out. */
+    popScale: 1.8,
+    popMs: 200,
+    /** Pickup on a collapsing floor: it shrinks into the pit and is lost. */
+    lostMs: 320,
+
+    sparkle: {
+      size: 12,
+      lifespanMs: 420,
+      speedMin: 30,
+      speedMax: 110,
+    },
+
+    coinBurst: {
+      lifespanMs: 650,
+      speedMin: 90,
+      speedMax: 190,
+      gravityY: 380,
+    },
+
+    floatText: {
+      fontSize: 24,
+      chestFontSize: 34,
+      risePx: 44,
+      ms: 850,
+      strokeColor: '#000000',
+      strokeThickness: 5,
+    },
+  },
+
+  loot: {
+    sack: {
+      /** Sack reaches max size at this much loot. */
+      fullLoot: 1000,
+      /** Sack scale at full loot (1 = starting size). */
+      maxScale: 1.6,
+      /** Little bounce each time it grows. */
+      bounceScale: 1.25,
+      bounceMs: 240,
+    },
+    /** Hook for the greed mechanic (later). 0 = no slowdown. */
+    greed: {
+      speedPenaltyPerLoot: 0,
+      minSpeedMultiplier: 1,
+    },
+  },
+
+  hud: {
+    /** Top of the HUD bar (logical px). Leaves room for phone notches. */
+    top: 18,
+    height: 76,
+    sideMargin: 12,
+    backColor: 0x000000,
+    backAlpha: 0.45,
+    cornerRadius: 18,
+    fontSize: 40,
+    smallFontSize: 34,
+    color: '#ffffff',
+    lootColor: '#ffd23f',
+    iconSize: 38,
+    /** x positions (logical px). */
+    lootIconX: 46,
+    timerX: 340,
+    gemIconX: 452,
+    chestIconX: 590,
+    /** Gap between an icon and its number. */
+    iconGap: 26,
+    /** Loot number counts up over this long; numbers punch on change. */
+    countUpMs: 450,
+    punchScale: 1.25,
+    punchMs: 140,
+    depth: 1500,
+  },
+
+  save: {
+    /** localStorage key prefix; the level id is appended. */
+    bestLootKey: 'dwtd.bestLoot.',
+  },
+
   overlay: {
     backdropAlpha: 0.6,
     buttonWidth: 420,
@@ -290,6 +463,10 @@ export const TUNING = {
     buttonPressedColor: 0xc9a22a,
     /** Button ignores taps for this long after the overlay appears. */
     inputDelayMs: 350,
+    /** Vertical gap between result lines (px). */
+    lineGap: 60,
+    newBestColor: '#ffd23f',
+    newBestPulseMs: 520,
     depth: 3000,
   },
 
@@ -308,6 +485,8 @@ export const TUNING = {
     color: '#9fe870',
     /** How often the debug text refreshes (ms). */
     refreshMs: 200,
+    /** Top of the debug text, below the HUD bar. */
+    top: 106,
     depth: 2000,
   },
 } as const;

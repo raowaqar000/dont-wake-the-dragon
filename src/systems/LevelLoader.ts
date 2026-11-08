@@ -37,6 +37,8 @@ export class LevelLoader {
       walls.add(scene.add.zone((x + w / 2) * ts, (y + h / 2) * ts, w * ts, h * ts));
     };
     for (const r of parsed.wallRects) addRect(r.x, r.y, r.w, r.h);
+    // Chests are solid from the start.
+    for (const c of parsed.chests) addRect(c.x, c.y, 1, 1);
     walls.refresh();
 
     return {
@@ -52,13 +54,16 @@ export class LevelLoader {
 
   /** Dev-only: path search over the level. Throws on unreachable exit / floor. */
   private static check(data: LevelData, parsed: ParsedLevel): void {
-    const report = validateLevel(parsed);
+    const T = TUNING.treasure;
+    const report = validateLevel(parsed, { coin: T.coin.value, gem: T.gem.value, chest: T.chest.value });
     if (report.errors.length > 0) throw new Error(`[${data.id}] ${report.errors.join('; ')}`);
     const secs = (tiles: number) => walkSeconds(tiles, L.tileSize, TUNING.movement.sneakSpeed).toFixed(0);
     console.info(
       `[${data.id}] ok: shortest path ${report.shortest.length.toFixed(0)} tiles (~${secs(report.shortest.length)}s sneaking), ` +
         `${report.shortestCollapsed.length.toFixed(0)} tiles with every crumbling floor collapsed`,
     );
+    const t = report.treasure;
+    console.info(`[${data.id}] treasure: ${t.coins} coins, ${t.gems} gems, ${t.chests} chests, max loot ${t.maxLoot}`);
   }
 
   /** Draws every tile once into a single RenderTexture (one draw call per frame). */

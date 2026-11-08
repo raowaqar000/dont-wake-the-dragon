@@ -3,7 +3,7 @@ import { TUNING } from '../config';
 import type { Player } from '../entities/Player';
 import type { PlayerVisual } from '../entities/PlayerVisual';
 import type { Joystick } from '../ui/Joystick';
-import { ResultOverlay } from '../ui/ResultOverlay';
+import { ResultOverlay, type ResultLine } from '../ui/ResultOverlay';
 
 const F = TUNING.fail;
 
@@ -34,6 +34,8 @@ export interface FailSystemDeps {
   joystick: Joystick;
   camera: Phaser.Cameras.Scene2D.Camera;
   onRetry: () => void;
+  /** Extra lines for the CAUGHT card (e.g. "Loot lost: 120"), read when the card opens. */
+  resultLines?: () => ResultLine[];
 }
 
 /**
@@ -92,7 +94,7 @@ export class FailSystem {
       new ResultOverlay(this.scene, {
         title: reason.title,
         titleColor: reason.titleColor,
-        lines: reason.subtitle ? [reason.subtitle] : [],
+        lines: [...(reason.subtitle ? [reason.subtitle] : []), ...(this.deps.resultLines?.() ?? [])],
         buttonLabel: 'Try again',
         onPress: this.deps.onRetry,
       });

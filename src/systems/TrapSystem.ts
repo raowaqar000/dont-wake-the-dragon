@@ -15,6 +15,8 @@ export interface TrapSystemDeps {
   /** Turns a tile into a solid wall (collapsed floor). */
   addWallTile: (tile: TilePos) => void;
   onCaught: (kind: TrapKind, effect: FailEffect) => void;
+  /** A crumbling floor just collapsed (treasure on it is lost). */
+  onFloorCollapsed?: (tile: TilePos) => void;
   /** While true, traps keep animating but can't catch or be triggered (teleport, run over). */
   isPaused: () => boolean;
 }
@@ -85,6 +87,7 @@ export class TrapSystem {
 
   private onCollapse(tile: CrumbleTile): void {
     this.deps.addWallTile(tile.tile);
+    this.deps.onFloorCollapsed?.(tile.tile);
     const { x, y } = this.deps.player;
     if (!this.deps.isPaused() && tile.contains(x, y, T.crumble.fallInset)) {
       this.deps.onCaught('pit', { kind: 'fall', x: tile.cx, y: tile.cy });

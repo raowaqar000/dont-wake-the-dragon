@@ -26,8 +26,10 @@ export class PlayerVisual {
 
   private readonly root: Phaser.GameObjects.Container;
   private readonly body: Phaser.GameObjects.Sprite;
-  /** Separate part so it can grow with treasure later. */
+  /** Separate part so it can grow with loot (growSack). */
   public readonly sack: Phaser.GameObjects.Image;
+  /** Sack size from loot (1 = start) and a short bounce on top of it. */
+  private readonly sackSize = { growth: 1, bounce: 1 };
   private readonly dust?: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Effect offsets layered on top of the normal look (teleport, hit, fall). */
   private readonly fx = { scale: 1, alpha: 1, angle: 0, dx: 0, dy: 0 };
@@ -98,6 +100,24 @@ export class PlayerVisual {
     const info = heroFrameInfo(this.body.frame.name);
     const anchor = heroSackAnchor(this.dir, info?.pose ?? 'idle', info?.index ?? 0);
     this.sack.setPosition(anchor.x, anchor.y);
+    this.sack.setScale((V.sack.scale * this.sackSize.growth * this.sackSize.bounce) / V.textureResolution);
+  }
+
+  /** Sets the sack size (1 = starting size). Bounces when it gets bigger. */
+  growSack(scale: number): void {
+    const S = TUNING.loot.sack;
+    const grew = scale > this.sackSize.growth;
+    this.sackSize.growth = scale;
+    if (!grew) return;
+    this.scene.tweens.killTweensOf(this.sackSize);
+    this.sackSize.bounce = 1;
+    this.scene.tweens.add({
+      targets: this.sackSize,
+      bounce: S.bounceScale,
+      duration: S.bounceMs / 2,
+      yoyo: true,
+      ease: 'Quad.easeOut',
+    });
   }
 
   /** Teleport entry: flash white, spin and shrink away. */
