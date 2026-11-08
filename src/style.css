@@ -1,0 +1,31 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #14121a;
+
+  /* No pull-to-refresh, overscroll bounce, scrolling or browser gestures */
+  overscroll-behavior: none;
+  touch-action: none;
+
+  /* No text selection, long-press callout or tap flash */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game {
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block;
+  touch-action: none;
+}

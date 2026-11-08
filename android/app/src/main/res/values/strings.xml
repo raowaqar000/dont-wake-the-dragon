@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Don\'t Wake The Dragon</string>
+    <string name="title_activity_main">Don\'t Wake The Dragon</string>
+    <string name="package_name">com.alihamza.dontwakethedragon</string>
+    <string name="custom_url_scheme">com.alihamza.dontwakethedragon</string>
+</resources>
