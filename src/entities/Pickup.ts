@@ -2,10 +2,10 @@ import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import type { PickupKind } from '../levels/types';
 import type { TilePos } from '../systems/LevelParser';
+import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { TREASURE_TEXTURE_SCALE } from '../systems/TreasureTextureFactory';
 
 const T = TUNING.treasure;
-const S = TREASURE_TEXTURE_SCALE;
 const TWO_PI = Math.PI * 2;
 
 export type PickupState = 'idle' | 'collected' | 'lost';
@@ -22,7 +22,9 @@ export class Pickup {
   public readonly radiusSq: number;
 
   private readonly image: Phaser.GameObjects.Image;
-  private readonly twinkle?: Phaser.GameObjects.Image;
+  /** Resting scale: painted art (TUNING.art.coin / gem) or the code-drawn texture. */
+  private readonly baseScale: number;
+  private twinkle?: Phaser.GameObjects.Image;
   /** Random phase so items don't all move in sync. */
   private readonly phase = Math.random() * TWO_PI;
   private nextTwinkleAt = 0;
@@ -39,10 +41,10 @@ export class Pickup {
     this.value = cfg.value;
     this.radiusSq = cfg.pickupRadius * cfg.pickupRadius;
 
-    this.image = scene.add
-      .image(this.x, this.y, kind === 'coin' ? TEXTURE_KEYS.coin : TEXTURE_KEYS.gem)
-      .setScale(S)
-      .setDepth(T.depth);
+    const art = hasArt(scene, kind);
+    this.baseScale = art ? ART_SCALE * TUNING.art[kind].displayScale : TREASURE_TEXTURE_SCALE;
+    const key = art ? artKey(kind) : kind === 'coin' ? TEXTURE_KEYS.coin : TEXTURE_KEYS.gem;
+    this.image = scene.add.image(this.x, this.y, key).setScale(this.baseScale).setDepth(T.depth);
 
     if (kind === 'gem') {
       this.twinkle = scene.add
@@ -64,7 +66,7 @@ export class Pickup {
 
     if (this.kind === 'coin') {
       const spin = Math.cos((now / T.coin.spinMs) * TWO_PI + this.phase);
-      this.image.scaleX = S * Math.max(0.12, Math.abs(spin));
+      this.image.scaleX = this.baseScale * Math.max(0.12, Math.abs(spin));
     } else if (this.twinkle && now >= this.nextTwinkleAt) {
       const G = T.gem;
       this.nextTwinkleAt = now + G.twinkleMs * 2 + Phaser.Math.Between(G.twinkleMinMs, G.twinkleMaxMs);
@@ -74,13 +76,20 @@ export class Pickup {
       );
       this.scene.tweens.add({
         targets: this.twinkle,
-        scale: { from: 0, to: S * 1.1 },
+        scale: { from: 0, to: TREASURE_TEXTURE_SCALE * 1.1 },
         angle: { from: 0, to: 90 },
         duration: G.twinkleMs,
         yoyo: true,
         ease: 'Sine.easeOut',
       });
     }
+  }
+
+  /** Fake treasure tell: duller color, no twinkle. */
+  makeFake(tint: number): void {
+    this.image.setTint(tint);
+    this.twinkle?.destroy();
+    this.twinkle = undefined;
   }
 
   /** Picked up: pop and fade. */
@@ -90,7 +99,7 @@ export class Pickup {
     this.twinkle?.destroy();
     this.scene.tweens.add({
       targets: this.image,
-      scale: S * T.popScale,
+      scale: this.baseScale * T.popScale,
       alpha: 0,
       duration: T.popMs,
       ease: 'Back.easeOut',

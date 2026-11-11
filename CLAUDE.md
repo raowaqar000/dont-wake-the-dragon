@@ -4,27 +4,33 @@ A mobile-only, portrait (720x1280 logical, `Phaser.Scale.FIT`) top-down stealth 
 A tiny hooded treasure hunter sneaks through dark caves, steals treasure and avoids waking dragons.
 Stack: Phaser 3.90, TypeScript 5.9, Vite, Capacitor 8 (Android, app id `com.alihamza.dontwakethedragon`).
 
-Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `npm run android:sync`.
+Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `npm run android:sync`, `npm run assets` (rebuilds the painted art).
 
 ## Folder structure
 
+- `art/raw/`: the hand-painted source PNGs (white backgrounds, sheets). Not shipped. `art/preview/` (gitignored): assembled previews written by `npm run assets`.
+- `scripts/process-assets.mjs` (sharp): removes white backgrounds (border flood fill, soft un-mixed edges), cuts the treasure/trap sheets, trims and resizes to 2x, cuts the hero sack and the dragon tail tip, writes `public/assets/game/*.png` and `src/generated/artManifest.ts`. Raw-pixel anchor points (neck, eyes, mouth, sack seeds, tail cut) live in its `CONFIG`.
+- `public/assets/game/`: game-ready PNGs (generated, committed).
+- `src/generated/artManifest.ts`: generated file list, sizes and anchor points. Never edit by hand.
 - `src/main.ts`: installs mobile guards, creates the Phaser game (BootScene then GameScene).
 - `src/config.ts`: `GAME_WIDTH/HEIGHT`, `SCENE_KEYS`, `TEXTURE_KEYS`, `COLORS`, **`TUNING`** and `createGameConfig`.
-- `src/scenes/`: `BootScene` (builds the procedural textures, then starts the game); `GameScene` (builds the level and wires all the systems).
+- `src/scenes/`: `BootScene` (loads the painted art with a loading bar, builds the procedural textures, then starts the game); `GameScene` (builds the level and wires all the systems).
 - `src/entities/`:
-  - Player: `Player` (invisible Arcade physics circle, move state); `PlayerVisual` (animated thief and a separate public `sack` image).
-  - Level objects: `ExitZone`, `Portal`, `SpikeTrap`, `CrumbleTile`.
+  - Player: `Player` (invisible Arcade physics circle, move state); `PlayerVisual` (painted thief: one still image per direction animated in code around a feet pivot, a step clock for footsteps, and a sack cut-out overlay that only grows; code-drawn frame animation as fallback).
+  - Level objects: `ExitZone` (`slideBy` for the runaway exit), `Portal`, `SpikeTrap`, `CrumbleTile`.
+  - `troll/`: `TrapFloor` (drops into a pit; also the moving pit; `addPitImage`), `PopupSpikes` (hidden spikes, also the fake-treasure ring), `FallingRock` (shadow, slam, rubble, grit tell), `ClosingWall` (two sliding slabs with moving immovable bodies; reopen after `holdMs`).
   - Treasure: `Pickup` (coin/gem; idle animation driven by LootSystem) and `Chest` (solid, glow, progress ring, lid open).
-  - `Dragon`: one sleeping dragon (sleep meter, 3 stages, breathing, Zzz, tail twitch, eye glow, meter bar, wake pose). Implements `NoiseListener`. All parts are placed through `toWorld()` (art frame = head facing right), so an upright dragon only needs a base rotation.
+  - `Dragon`: one sleeping dragon (sleep meter, 3 stages, breathing, Zzz, tail twitch, eye glow, meter bar, wake pose). Implements `NoiseListener`. All parts are placed through `toWorld()` (art frame = head facing right; the asset script mirrors the left-facing art), so an upright dragon only needs a base rotation. Part positions come from a `DragonRig` (painted: from the art anchors; head image sleep/stir/roar by stage; fallback: `TUNING.dragon`).
 - `src/systems/`:
   - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`).
-  - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem`; `FailSystem`.
+  - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem` (spikes, crumble; collapsed crumbles become pits); `FailSystem` (`fail` = card, `quickFail` = trap death with auto-restart, `begin/finish` = dragon sequence; `onDeath` hook counts deaths).
+  - Jump and troll traps: `PitMap` (which tiles are open pits; no physics bodies); `JumpSystem` (EventEmitter, `JUMP_EVENTS.takeoff/land/fell`; buffer, coyote time, cooldown, falls when the body center is over a pit); `TrollTrapSystem` (EventEmitter, `TROLL_EVENTS.triggered`; tile-based triggers checked only on tile change, trap links, tells, fake walls, rubble).
   - Noise and dragons: `NoiseSystem` (`emitNoise(x, y, loudness, source)`, distance falloff, grid-DDA wall dampening, pooled fading rings); `DragonSystem` (owns the dragons, shared smoke/fire emitters, stage haptics, the wake-up sequence, debug reach); `HapticsService` (Capacitor Haptics, `navigator.vibrate` fallback, never throws).
-  - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot in localStorage, guarded with try/catch).
-  - Graphics: `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory` and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
+  - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot and lifetime deaths per level in localStorage, guarded with try/catch; session attempts in memory). Fake treasure emits `LOOT_EVENTS.fakeTaken`.
+  - Graphics: `ArtAssets` (`queueArt`, `artKey(name)`, `hasArt(scene, ...names)`, `ART_SCALE`); `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory`, `TrollTextureFactory` (placeholders: ceiling rock, rock shadow, rubble, jump icon) and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
   - Browser: `MobileGuards` (blocks zoom, scroll and long-press).
-- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only); `Hud` (top bar: loot, timer, gems, chests); `ResultOverlay` (end-of-run card); `EscapeOverlay`; `DebugOverlay` (below the HUD).
-- `src/levels/`: `types.ts` (level format and symbols, no imports); `level01.ts` ("The Deep Warren", 25x60 tiles).
+- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only; ignores touches that start on interactive objects); `JumpButton` (round, semi-transparent, bottom right; ignores presses for `ignoreAfterStartMs` after a restart); `Hud` (top bar: loot, timer, gems, chests; deaths and session attempts under it); `ResultOverlay` (end-of-run card); `EscapeOverlay`; `DebugOverlay` (below the HUD).
+- `src/levels/`: `types.ts` (level format and symbols, no imports); `index.ts` (`LEVELS`, `getLevel(id)`; start level = `TUNING.debug.startLevel`); `level01.ts` ("The Deep Warren", 25x60 tiles); `level02.ts` ("The Trickster's Tunnel", 25x59, jumping + 18 troll traps, 2 dragons).
 - `android/`: Capacitor Android project. `dist/`: Vite output (Capacitor `webDir`).
 
 ## Architecture rules
@@ -48,6 +54,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
     - the exit is reachable, both with crumbling floors intact and with all of them collapsed;
     - every floor tile is reachable (8-way movement, no corner cutting, portals act as jumps; chests and dragon footprints are solid).
   - `LevelLoader.check` throws if any check fails.
+- **Painted art with a code-drawn fallback.** Every entity checks `hasArt(scene, ...)` and uses `artKey(name)` textures, otherwise the procedural texture (still built at boot). Display sizes are `TUNING.art.<asset>.displayScale` times `ART_SCALE` (0.5, the art is 2x). Never hard-code art anchor points: add them to the script's `CONFIG` so they land in `artManifest.ts`. After replacing an image, run `npm run assets` and check `art/preview/`.
 - **Visual and physics are split:** `Player` is physics only, and `PlayerVisual` reads its velocity after the physics step (POST_UPDATE).
 - **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108. HUD is 1500, debug 2000, overlays 3000.
 - **Clean up on scene restart:** retry calls `scene.restart()`. Remove scene and game event listeners on `SHUTDOWN`.
@@ -69,6 +76,15 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 | `D` | sleeping dragon; touching `D` tiles form one dragon, exactly 3 wide x 2 tall (`DRAGON_FOOTPRINTS`); solid; facing auto (more open side) or `LevelData.dragonOverrides` (facing, hearing) | implemented |
 | `~` | hazard (water / lava) | reserved |
 | `S` | special (unassigned) | reserved |
+| `-` | gap: open pit from the start, jumpable (up to `TUNING.jump.maxJumpTiles` wide) | done |
+| `t` | troll: trap floor, drops into a pit when the player is ~1 tile away (tell: thin crack) | done |
+| `i` | troll: pop-up spikes, hidden, pop when the player is next to them (tell: pinholes) | done |
+| `R` | troll: falling ceiling rock, shadow then slam; leaves passable, noisy rubble (tell: grit) | done |
+| `[` `]` | troll: closing walls, `[` left and `]` right of the corridor rows; solid tiles (tell: dark seam) | done |
+| `$` `*` | troll: fake coin / fake gem, spike ring + noise, can fire links (tell: duller color) | done |
+| `e` | troll: runaway exit, real exit position; the `E` door slides here when you get close (tell: scuffs) | done |
+| `w` | troll: fake wall, walkable, drawn as wall above the hero (tell: lighter shade, glint) | done |
+| `M` | troll: moving pit, drops when you jump toward its gap, widening it by 1 (once per level; tell: pebble) | done |
 | `x` | noisy floor: broken glass | reserved |
 | `h` | noisy floor: chains | reserved |
 | `r` | noisy floor: loose rocks | reserved |
@@ -76,6 +92,9 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 | `O` | boulder trap: boulder start | reserved |
 
 Coins or gems on top of another tile (for example a gem on a crumbling floor) go in `LevelData.treasureOnTiles`. If that floor collapses first, the treasure is lost.
+
+Optional level data: `trapLinks` (`{ from, to[] }`: firing the trap at `from` fires the traps at `to`); `varyTraps` + `trapVariants` (`{ x, y, alt[] }`: attempt n moves the trap to one of its alternative `.` tiles; off by default).
+The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles), checks the worst case (crumble, trap floors and moving pits all dropped), targets the real exit `e` when there is one, and checks that every moving pit's widened gap is still jumpable.
 
 ## Git rules
 
@@ -111,13 +130,22 @@ Coins or gems on top of another tile (for example a gem on a crumbling floor) go
    - NoiseSystem with footstep, chest and portal noise, wall dampening and visible noise rings;
    - 5 dragons in level01 with a sleep meter, 3 wake stages, a "phew" on near misses, and a ~1.8 s wake-up (roar, fire, charred hero, "THE DRAGON WOKE UP!");
    - haptics on stirring and on wake-up.
+7. Hand-painted art: asset pipeline (`npm run assets`), loading bar, painted hero (code-animated, growing sack overlay), dragon (body + swappable head + cut tail tip), treasure, traps, portals (pair-colored ring), exit door, tiled floor and wall textures, with code-drawn fallbacks.
+
+8. Jump and troll traps:
+   - JUMP button (UI camera, multi-touch with the joystick), 0.45 s hop with a fixed distance (same at sneak and run), air control, coyote time, jump buffer, cooldown, landing noise; the hero clears gaps, spikes and crumbling floors in the air;
+   - pits are `PitMap` tiles (no bodies): walking in with the body center over one = fall;
+   - 8 hidden troll traps with subtle tells, trap links, optional trap variation;
+   - trap deaths auto-restart after 0.8 s (dragon wake keeps its full sequence and card); lifetime deaths per level and session attempts in the HUD, deaths on the ESCAPED and CAUGHT cards;
+   - level02 "The Trickster's Tunnel"; level01 got two optional 1-tile hops; `TUNING.debug.startLevel` picks the level.
+   - Code-drawn placeholders still needing painted art: ceiling rock, rock shadow, rubble, jump button icon, closing-wall slab face (uses the wall tile now), optional hero jump pose.
 
 ## Next planned features
 
-1. Noisy floor hazards (glass, chains, loose rocks).
-2. Distract throw.
-3. Dragon behaviours (upright 2x3 dragons: add `upright` to `DRAGON_FOOTPRINTS` and a base rotation in `Dragon`).
-4. Greed mechanic (loot weight slows the player; hook: `LootSystem.speedMultiplier` sets `Player.speedMultiplier`, tuned by `TUNING.loot.greed`).
-5. Juice: sound, more haptics, particles.
-6. More levels.
-7. Supabase leaderboard.
+1. Main menu, level select map with stars, proper game UI (second batch of UI art).
+2. Dragon wake = alarm + chase instead of instant death, hiding spots, alarm traps.
+3. Items picked up during runs (smoke bomb, lullaby flute, silent boots, decoy coin bag, grappling rope, fire shield, torch).
+4. More traps (alarm bells, swinging axes, arrow walls, fire jets, stalactites, boulders, mimic chests, bats, noisy floors `x` `h` `r`, webs, ice).
+5. Heist escape (main prize collapses the cave, sprint out).
+6. Worlds, 3 stars per level, shop, boss dragons, endless mode, daily challenge.
+7. Sound, music, haptics polish, Supabase leaderboard.

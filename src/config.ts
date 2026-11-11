@@ -33,6 +33,11 @@ export const TEXTURE_KEYS = {
   dragonZ: 'dragon_z',
   smokePuff: 'smoke_puff',
   flame: 'flame',
+  /** Feature 8 placeholders (code-drawn until painted versions exist). */
+  ceilingRock: 'ceiling_rock',
+  rockShadow: 'rock_shadow',
+  rubble: 'rubble',
+  jumpIcon: 'jump_icon',
 } as const;
 
 export const COLORS = {
@@ -273,6 +278,149 @@ export const TUNING = {
     /** Charred by dragon fire: the hero darkens to this color over charMs. */
     charColor: 0x2a2224,
     charMs: 260,
+    /** Trap deaths: quick hit effect, then auto-restart after this long with no overlay (ms). */
+    quickRestartMs: 800,
+    /** Crushed by closing walls: squash amount and time. */
+    crushSquash: 0.6,
+    crushMs: 140,
+  },
+
+  /** Top-down hop. Distance is the same at sneak and run, so gap sizes can be learned. */
+  jump: {
+    /** Time in the air (ms). */
+    airMs: 450,
+    /** Ground distance of a full jump (tiles). Speed in the air = distance / airMs. */
+    distanceTiles: 2.75,
+    /** Widest gap the level validator treats as jumpable (tiles). Keep below distanceTiles - 0.5. */
+    maxJumpTiles: 2,
+    /** How fast the air velocity turns toward the joystick (fraction per second). */
+    airControlPerSec: 5,
+    /** No new jump this long after landing (ms). No double jump. */
+    cooldownMs: 150,
+    /** Jump still works this long after the body's center moved over a gap (ms). */
+    coyoteMs: 100,
+    /** A press this long before the jump is allowed again still jumps (ms). */
+    bufferMs: 120,
+    /** Player falls in when his center is inside a pit tile shrunk by this (px). */
+    fallInset: 6,
+    /** Look: max lift (px), extra scale at the top, squash on takeoff / landing. */
+    heightPx: 22,
+    airScale: 0.12,
+    squash: 0.18,
+    squashMs: 90,
+    shadow: { width: 28, height: 11, alpha: 0.4, minScale: 0.55 },
+
+    button: {
+      /** Center (logical px, UI camera) and radius. Bottom right, easy thumb reach. */
+      x: 612,
+      y: 1128,
+      radius: 82,
+      /** Semi-transparent so it doesn't hide the cave in clips. */
+      color: 0xffffff,
+      alpha: 0.16,
+      pressedAlpha: 0.38,
+      strokeAlpha: 0.45,
+      strokeWidth: 4,
+      iconAlpha: 0.75,
+      iconScale: 1,
+      pressScale: 0.9,
+      pressMs: 70,
+      /** Presses are ignored this long after a (re)start, so a held finger doesn't jump at once (ms). */
+      ignoreAfterStartMs: 300,
+      depth: 1001,
+    },
+  },
+
+  /** Hidden "troll" traps (feature 8). Distances in tiles, times in ms. */
+  troll: {
+    depth: 1,
+    /** Effects above the player (falling rock, rubble). */
+    fxDepth: 12,
+    /** Trap floor 't': drops into a pit when the player is this close (Chebyshev tiles). */
+    trapFloor: {
+      triggerTiles: 1,
+      dropDelayMs: 150,
+      collapseMs: 260,
+      dust: 10,
+      /** Tell: a thin crack. */
+      crackColor: 0x1e1a22,
+      crackAlpha: 0.4,
+    },
+    /** Pop-up spikes 'i': hidden, shoot up when the player is next to them. */
+    popSpikes: {
+      triggerTiles: 1,
+      /** First pop (still hidden): delay before they are up. */
+      popDelayMs: 100,
+      /** Once revealed, later pops warn this long first. */
+      revealedWarnMs: 450,
+      upMs: 2500,
+      /** After going down, they can't pop again for this long. */
+      rearmMs: 400,
+      /** Tell: tiny pinholes. */
+      holeColor: 0x15121a,
+      holeAlpha: 0.32,
+    },
+    /** Falling ceiling rock 'R'. */
+    rock: {
+      triggerTiles: 1,
+      /** Shadow grows for shadowMs; the rock drops during the last fallMs of it. */
+      shadowMs: 750,
+      fallMs: 170,
+      dropHeightPx: 170,
+      shadowMaxAlpha: 0.55,
+      shakeMs: 180,
+      shakeIntensity: 0.008,
+      slamDust: 12,
+      /** Tell: a grain of grit falls every min..max ms while on screen. */
+      gritMinMs: 1600,
+      gritMaxMs: 3600,
+      displayScale: 1,
+    },
+    /** Closing walls '[' + ']': slide together across the corridor between them. */
+    closingWall: {
+      /** Triggers when the player is in the corridor or this many rows before/after it. */
+      triggerAheadTiles: 0,
+      warnMs: 250,
+      warnShakePx: 2,
+      closeMs: 1200,
+      /** Stay shut, then slide back open (no softlock). */
+      holdMs: 2500,
+      openMs: 1500,
+      /** Crushed when the hero is in the corridor and the opening is narrower than this (px, body is 26). */
+      crushGapPx: 24,
+      tint: 0x7a6a88,
+      seamColor: 0x0b0a0d,
+      seamAlpha: 0.55,
+    },
+    /** Fake coin '$' / fake gem '*': no loot, a ring of spikes pops around it, noise. */
+    fakeTreasure: {
+      ringDelayMs: 250,
+      /** Tell: slightly duller tint, gems don't twinkle. */
+      tint: 0xd0c4b0,
+      text: '?!',
+      textColor: '#ff6b5c',
+    },
+    /** Runaway exit: near the 'E' door it slides to the 'e' tiles (once). */
+    runawayExit: {
+      triggerTiles: 2,
+      slideMs: 650,
+      /** Tell: scuff marks on the floor toward the real spot. */
+      scuffColor: 0x0b0a0d,
+      scuffAlpha: 0.28,
+    },
+    /** Fake wall 'w': looks like wall, walkable. Fades while the player is inside. */
+    fakeWall: {
+      /** Tell: a slightly different tint than TUNING.art.level.wallTint, and a hairline glint. */
+      tint: 0x9282a2,
+      insideAlpha: 0.35,
+      fadePerSec: 6,
+      glintAlpha: 0.3,
+    },
+    /** Moving pit 'M': drops when the player jumps toward its gap (once per level). */
+    movingPit: {
+      /** Ray length from the takeoff point along the jump (tiles). */
+      lookAheadTiles: 3,
+    },
   },
 
   /**
@@ -290,6 +438,15 @@ export const TUNING = {
     chestOpen: 0.8,
     /** Teleport: a small noise at both portals. */
     portal: 0.4,
+    /** Jump landing: louder than a sneak step, quieter than a run step. */
+    land: 0.6,
+    /** A step on rubble (from a fallen ceiling rock): louder than a sneak step. */
+    rubbleStep: 0.5,
+    /** Troll traps: rock slam, closing walls, fake treasure, floor drop. */
+    rockSlam: 0.9,
+    wallsClose: 0.7,
+    fakeTreasure: 0.6,
+    floorDrop: 0.45,
     /** Carry range (px) of loudness 1. A run step reaches ~7 tiles. */
     rangePerLoudness: 336,
     /** Meter points at the source for loudness 1, before falloff. */
@@ -322,6 +479,8 @@ export const TUNING = {
         floor: 0xffffff,
         throw: 0xffffff,
         roar: 0xff6a3a,
+        land: 0xffffff,
+        trap: 0xffa070,
       },
       /** Above the darkness so the whole reach shows. */
       depth: 101,
@@ -693,11 +852,20 @@ export const TUNING = {
     punchScale: 1.25,
     punchMs: 140,
     depth: 1500,
+    /** Deaths counter under the bar (left), with "attempts this session" below it. */
+    deathsX: 24,
+    deathsY: 104,
+    deathsFontSize: 28,
+    deathsColor: '#ff8a7a',
+    attemptsFontSize: 20,
+    attemptsColor: '#d8d0c8',
   },
 
   save: {
     /** localStorage key prefix; the level id is appended. */
     bestLootKey: 'dwtd.bestLoot.',
+    /** Lifetime deaths per level. */
+    deathsKey: 'dwtd.deaths.',
   },
 
   overlay: {
@@ -720,8 +888,134 @@ export const TUNING = {
     extraPointers: 2,
   },
 
+  /**
+   * Hand-painted art (public/assets/game/, made by `npm run assets`). If an image fails to load,
+   * that object falls back to its code-drawn texture. Every displayScale multiplies the
+   * natural size (texture px * textureScale); 1 = the size the asset script made it for.
+   */
+  art: {
+    /** Painted textures are made at 2x, so 1 texture px = 0.5 world px. */
+    textureScale: 0.5,
+    /** Folder (relative to the page) the painted PNGs load from. */
+    path: 'assets/game/',
+
+    loading: {
+      barWidth: 420,
+      barHeight: 22,
+      color: 0xffd23f,
+      backColor: 0x000000,
+      backAlpha: 0.55,
+      borderColor: 0x5a5262,
+      textColor: '#ffe7a3',
+      fontSize: 30,
+    },
+
+    /** Hero: still images per direction, animated in code. */
+    hero: {
+      /** 96 px texture -> 48 world px; 0.86 -> ~41 px tall. */
+      displayScale: 0.86,
+      /** Feet position below the physics body center (world px, before displayScale). */
+      feetOffsetY: 19,
+      /** How fast the pose blends to the current motion (per second). Higher = snappier. */
+      blendPerSec: 14,
+      idle: {
+        bobPx: 1.2,
+        bobMs: 1700,
+        /** Breathing squash (fraction of height). */
+        breathe: 0.025,
+      },
+      /** Tiptoe: small hops with squash/stretch and a side-to-side sway. */
+      sneak: {
+        /** Footsteps per second at sneak speed (matches the old 7 fps, 2 steps per 4 frames). */
+        stepsPerSec: 3.5,
+        liftPx: 2.2,
+        squash: 0.07,
+        stretch: 0.06,
+        swayDeg: 5,
+        /** Forward lean when moving sideways (deg). */
+        leanDeg: 2,
+        /** Crouch: overall height while sneaking. */
+        crouch: 0.95,
+      },
+      /** Run: faster, bigger bounce and a forward lean. */
+      run: {
+        /** Footsteps per second at run speed (matches the old 12 fps). */
+        stepsPerSec: 6,
+        liftPx: 4.5,
+        squash: 0.13,
+        stretch: 0.08,
+        swayDeg: 3,
+        leanDeg: 10,
+        crouch: 1,
+      },
+      /** Sack overlay base scale; it grows with loot (TUNING.loot.sack), never below the painted sack. */
+      sackScale: 1,
+    },
+
+    dragon: {
+      /** Whole dragon (body, head, tail). 0.58 -> body ~104 x 74 px, head ~58 px wide. */
+      displayScale: 0.58,
+      /** Head size relative to the body. */
+      headScale: 1,
+      /** Shift of the whole dragon from the footprint center (art frame: +x = toward the head). */
+      offsetX: 0,
+      offsetY: -4,
+      /** true = the cut tail tip twitches; false = the whole body wiggles instead. */
+      tailTwitch: true,
+      tailTwitchDeg: 9,
+      wiggleDeg: 1.5,
+      /** Eye glow size relative to TUNING.dragon.eyeGlow.radius. */
+      eyeGlowScale: 0.75,
+    },
+
+    coin: { displayScale: 0.85 },
+    gem: { displayScale: 1 },
+    /** The chest stands on its tile: bottom edge at tile bottom + offsetY. */
+    chest: { displayScale: 0.95, offsetY: 2 },
+    spikes: {
+      displayScale: 1,
+      /** The raised spikes slide up this far while rising (px). */
+      riseSlidePx: 3,
+    },
+    crumble: { displayScale: 1 },
+    pit: { displayScale: 1 },
+    portal: {
+      displayScale: 0.9,
+      /** Pair-colored swirl inside the stone ring (size relative to the portal, flattened to match its oval). */
+      swirlScale: 0.5,
+      swirlFlatten: 0.72,
+      swirlAlpha: 0.55,
+      /** Thin glow ring in the pair's color (size relative to the portal, px width). */
+      ringScale: 0.47,
+      ringWidth: 2.5,
+      ringAlpha: 0.85,
+    },
+    /** The door is centered on the exit zone, bottom edge on the zone's bottom edge. */
+    exitDoor: { displayScale: 1.3, offsetY: 0 },
+
+    level: {
+      /** Tile texture repeat scale (1 = 384 px texture covers 4 tiles). */
+      floorScale: 1,
+      wallScale: 1,
+      /** Multiply tint: walls a bit darker so they read apart from the floor. */
+      floorTint: 0xffffff,
+      wallTint: 0x8a7a98,
+      /** Lighter top edge of a wall below open floor, and the floor shadow under a wall. */
+      wallEdge: true,
+      wallEdgeAlpha: 0.4,
+      floorShadow: true,
+      floorShadowAlpha: 0.35,
+      /** Dark line where wall meets floor (px, 0 = off). */
+      outlineWidth: 2,
+      outlineColor: 0x0b0a0d,
+      outlineAlpha: 0.6,
+    },
+  },
+
   debug: {
     enabled: true,
+    /** Level to start (temporary, until the level select exists): 'level01' | 'level02'. */
+    startLevel: 'level02' as string,
     /** Draw Arcade physics bodies (walls, player, exit). */
     showBodies: false,
     /** Traps and other fails only flash instead of ending the run (for testing layouts). */
@@ -733,7 +1027,7 @@ export const TUNING = {
     /** How often the debug text refreshes (ms). */
     refreshMs: 200,
     /** Top of the debug text, below the HUD bar. */
-    top: 106,
+    top: 170,
     depth: 2000,
   },
 } as const;

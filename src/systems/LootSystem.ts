@@ -14,6 +14,8 @@ export type LootKind = 'coin' | 'gem' | 'chest';
 export const LOOT_EVENTS = {
   /** Loot total went up. Payload: LootChange. */
   changed: 'loot-changed',
+  /** A fake coin/gem was grabbed (no loot). Payload: TilePos of the fake. */
+  fakeTaken: 'loot-fake-taken',
 } as const;
 
 export interface LootChange {
@@ -51,6 +53,7 @@ export class LootSystem extends Phaser.Events.EventEmitter {
   private readonly chests: Chest[];
   private readonly fx: LootFx;
   private readonly view = new Phaser.Geom.Rectangle();
+  private readonly fakes = new Set<Pickup>();
 
   private total = 0;
   private coins = 0;
@@ -75,6 +78,15 @@ export class LootSystem extends Phaser.Events.EventEmitter {
       ...level.coins.map((t) => new Pickup(scene, 'coin', t)),
       ...level.gems.map((t) => new Pickup(scene, 'gem', t)),
     ];
+    // Fake treasure: same look with a duller tint; grabbing it fires a trap instead of loot.
+    for (const [kind, tiles] of [['coin', level.fakeCoins], ['gem', level.fakeGems]] as const) {
+      for (const t of tiles) {
+        const p = new Pickup(scene, kind, t);
+        p.makeFake(TUNING.troll.fakeTreasure.tint);
+        this.fakes.add(p);
+        this.pickups.push(p);
+      }
+    }
     this.chests = level.chests.map((t) => new Chest(scene, t));
     this.gemsTotal = level.gems.length;
     this.chestsTotal = level.chests.length;
@@ -142,6 +154,12 @@ export class LootSystem extends Phaser.Events.EventEmitter {
 
   private collect(p: Pickup): void {
     p.collect();
+    if (this.fakes.has(p)) {
+      const F = TUNING.troll.fakeTreasure;
+      this.fx.floatText(p.x, p.y - 10, F.text, F.textColor, T.floatText.chestFontSize);
+      this.emit(LOOT_EVENTS.fakeTaken, p.tile);
+      return;
+    }
     const isCoin = p.kind === 'coin';
     const cfg = isCoin ? T.coin : T.gem;
     if (isCoin) this.coins++;

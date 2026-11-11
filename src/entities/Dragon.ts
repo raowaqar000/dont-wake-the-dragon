@@ -1,16 +1,43 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
+import { ART_ANCHORS, ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { DRAGON_HEAD_ORIGIN, DRAGON_TAIL_TIP_ORIGIN, DRAGON_TEXTURE_SCALE } from '../systems/DragonTextureFactory';
 import type { DragonSpawn } from '../systems/LevelParser';
 import type { NoiseListener, NoiseSource } from '../systems/NoiseSystem';
 
 const D = TUNING.dragon;
 const M = D.meter;
+const DA = TUNING.art.dragon;
+/** Scale of the code-drawn textures (Zzz, and the fallback body). */
 const S = DRAGON_TEXTURE_SCALE;
 
 /** 1 = deep sleep, 2 = stirring, 3 = about to wake. */
 export type DragonStage = 1 | 2 | 3;
 type DragonState = 'asleep' | 'waking';
+type HeadArt = 'sleep' | 'stir' | 'roar';
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Where the parts sit, in the art frame (px from the footprint center, head facing right).
+ * The code-drawn look reads TUNING.dragon; the painted look derives it from the art anchors.
+ */
+interface DragonRig {
+  bodyScale: number;
+  headScale: number;
+  body: Point;
+  neck: Point;
+  /** Head-local points (relative to the neck, before lift / turn). */
+  mouth: Point;
+  nostril: Point;
+  eyes: Point[];
+  tail: Point & { angleDeg: number };
+  /** Max tail twitch (deg). 0 = twitch the whole body instead. */
+  twitchDeg: number;
+}
 
 /** Shared effects the dragon asks for (owned by DragonSystem, one emitter for all dragons). */
 export interface DragonFxSink {
@@ -50,9 +77,15 @@ export class Dragon implements NoiseListener {
   private readonly cos: number;
   private readonly sin: number;
 
+  /** Painted art (true) or the code-drawn fallback. */
+  private readonly art: boolean;
+  private readonly rig: DragonRig;
+  private headArt: HeadArt | null = null;
+
   private readonly body: Phaser.GameObjects.Image;
   private readonly head: Phaser.GameObjects.Image;
   private readonly tail: Phaser.GameObjects.Image;
+  /** Code-drawn look only: eyelid sprites. The painted heads have their own eyes. */
   private readonly eyes: Phaser.GameObjects.Image[];
   private readonly glows: Phaser.GameObjects.Image[];
   private readonly zs: Phaser.GameObjects.Image[];
@@ -99,33 +132,59 @@ export class Dragon implements NoiseListener {
     this.cos = Math.cos(this.baseAngle);
     this.sin = Math.sin(this.baseAngle);
     const flipX = this.flip < 0;
+    this.art = hasArt(scene, 'dragon_body', 'dragon_tail_tip', 'dragon_head_sleep', 'dragon_head_stir', 'dragon_head_roar');
+    this.rig = this.art ? Dragon.artRig() : Dragon.drawnRig();
+    const R = this.rig;
 
-    this.body = scene.add.image(this.cx, this.cy, TEXTURE_KEYS.dragonBody).setScale(S).setDepth(D.depth);
-    this.tail = scene.add
-      .image(0, 0, TEXTURE_KEYS.dragonTailTip)
-      .setOrigin(flipX ? 1 - DRAGON_TAIL_TIP_ORIGIN.x : DRAGON_TAIL_TIP_ORIGIN.x, DRAGON_TAIL_TIP_ORIGIN.y)
-      .setScale(S)
-      .setDepth(D.depth);
-    this.head = scene.add
-      .image(0, 0, TEXTURE_KEYS.dragonHead)
-      .setOrigin(flipX ? 1 - DRAGON_HEAD_ORIGIN.x : DRAGON_HEAD_ORIGIN.x, DRAGON_HEAD_ORIGIN.y)
-      .setScale(S)
-      .setDepth(D.depth);
+    if (this.art) {
+      const T = ART_ANCHORS.dragon.tail;
+      this.body = scene.add.image(0, 0, artKey('dragon_body')).setDepth(D.depth);
+      this.tail = scene.add
+        .image(0, 0, artKey('dragon_tail_tip'))
+        .setOrigin(flipX ? 1 - T.pivot.x / T.width : T.pivot.x / T.width, T.pivot.y / T.height)
+        .setScale(R.bodyScale)
+        .setDepth(D.depth);
+      // Head origin = its neck anchor; set per head image in setHeadArt().
+      this.head = scene.add.image(0, 0, artKey('dragon_head_sleep')).setScale(R.headScale).setDepth(D.depth);
+    } else {
+      this.body = scene.add.image(this.cx, this.cy, TEXTURE_KEYS.dragonBody).setDepth(D.depth);
+      this.tail = scene.add
+        .image(0, 0, TEXTURE_KEYS.dragonTailTip)
+        .setOrigin(flipX ? 1 - DRAGON_TAIL_TIP_ORIGIN.x : DRAGON_TAIL_TIP_ORIGIN.x, DRAGON_TAIL_TIP_ORIGIN.y)
+        .setScale(R.bodyScale)
+        .setDepth(D.depth);
+      this.head = scene.add
+        .image(0, 0, TEXTURE_KEYS.dragonHead)
+        .setOrigin(flipX ? 1 - DRAGON_HEAD_ORIGIN.x : DRAGON_HEAD_ORIGIN.x, DRAGON_HEAD_ORIGIN.y)
+        .setScale(R.headScale)
+        .setDepth(D.depth);
+    }
+    this.body.setScale(R.bodyScale);
     for (const img of [this.body, this.tail, this.head]) img.setFlipX(flipX);
+    if (this.art) this.setHeadArt('sleep');
 
     const G = D.eyeGlow;
-    this.glows = D.eyes.map(() =>
+    const glowRadius = G.radius * (this.art ? DA.eyeGlowScale : 1);
+    // Painted heads have up to 2 eyes (the roar head); the drawn one always 2.
+    this.glows = [0, 1].map(() =>
       scene.add
         .image(0, 0, TEXTURE_KEYS.softGlow)
         .setTint(G.color)
         .setBlendMode(Phaser.BlendModes.ADD)
-        .setDisplaySize(G.radius * 2, G.radius * 2)
+        .setDisplaySize(glowRadius * 2, glowRadius * 2)
         .setDepth(D.overlayDepth)
         .setVisible(false),
     );
-    this.eyes = D.eyes.map(() =>
-      scene.add.image(0, 0, TEXTURE_KEYS.dragonEyeHalf).setScale(S).setFlipX(flipX).setDepth(D.overlayDepth + 1).setVisible(false),
-    );
+    this.eyes = this.art
+      ? []
+      : D.eyes.map(() =>
+          scene.add
+            .image(0, 0, TEXTURE_KEYS.dragonEyeHalf)
+            .setScale(R.headScale)
+            .setFlipX(flipX)
+            .setDepth(D.overlayDepth + 1)
+            .setVisible(false),
+        );
 
     this.zs = [];
     this.zAge = [];
@@ -181,11 +240,11 @@ export class Dragon implements NoiseListener {
 
   /** Mouth tip in world px (fire starts here). */
   mouthPosition(out: Phaser.Math.Vector2): Phaser.Math.Vector2 {
-    return this.headPoint(D.mouth.x, D.mouth.y, out);
+    return this.headPoint(this.rig.mouth.x, this.rig.mouth.y, out);
   }
 
   nostrilPosition(out: Phaser.Math.Vector2): Phaser.Math.Vector2 {
-    return this.headPoint(D.nostril.x, D.nostril.y, out);
+    return this.headPoint(this.rig.nostril.x, this.rig.nostril.y, out);
   }
 
   // Update ---------------------------------------------------------------
@@ -220,7 +279,7 @@ export class Dragon implements NoiseListener {
     const lx = (dx * this.cos + dy * this.sin) * this.flip;
     const ly = -dx * this.sin + dy * this.cos;
     const max = Phaser.Math.DegToRad(W.maxTurnDeg);
-    const turn = Phaser.Math.Clamp(Math.atan2(ly - D.neck.y, lx - D.neck.x), -max, max);
+    const turn = Phaser.Math.Clamp(Math.atan2(ly - this.rig.neck.y, lx - this.rig.neck.x), -max, max);
 
     Object.assign(this.wakePose, { open: this.eyeOpen[0], lift: this.lift, turn: 0 });
     this.scene.tweens.add({ targets: this.wakePose, open: 1, duration: W.eyesOpenMs, ease: 'Quad.easeOut' });
@@ -332,47 +391,56 @@ export class Dragon implements NoiseListener {
     const B = D.breath;
     const breathe = Math.sin(this.breathPhase);
     const shake = this.growlLeft > 0 ? Math.sin(now * 0.11) * D.stir.growlShakePx * (this.growlLeft / D.stir.growlMs) : 0;
+    const R = this.rig;
+
+    // Painted heads: sleep in stage 1, stir in stages 2-3, roar while waking.
+    if (this.art) this.setHeadArt(this.state === 'waking' ? 'roar' : this.stageValue === 1 ? 'sleep' : 'stir');
+
+    // Tail twitch (0..1 bump). With twitchDeg 0 the whole body wiggles instead.
+    const bump = this.twitchLeft > 0 ? Math.sin((1 - this.twitchLeft / D.stir.twitchMs) * Math.PI) * this.twitchSign : 0;
+    const wiggle = R.twitchDeg > 0 ? 0 : Phaser.Math.DegToRad(DA.wiggleDeg * bump);
 
     // Body breathes (swells more across than along).
+    this.toWorld(R.body.x, R.body.y, this.tmp);
     this.body
-      .setPosition(this.cx + shake * this.cos, this.cy + shake * this.sin)
-      .setScale(S * (1 + B.amount * 0.5 * breathe), S * (1 + B.amount * breathe))
-      .setRotation(this.baseAngle);
+      .setPosition(this.tmp.x + shake * this.cos, this.tmp.y + shake * this.sin)
+      .setScale(R.bodyScale * (1 + B.amount * 0.5 * breathe), R.bodyScale * (1 + B.amount * breathe))
+      .setRotation(this.baseAngle + this.flip * wiggle);
 
     // Tail tip: resting angle + twitch.
-    const tw = this.twitchLeft > 0 ? Math.sin((1 - this.twitchLeft / D.stir.twitchMs) * Math.PI) * D.stir.twitchDeg * this.twitchSign : 0;
-    this.toWorld(D.tailTip.x, D.tailTip.y + breathe * B.amount * 20, this.tmp);
+    this.toWorld(R.tail.x, R.tail.y + breathe * B.amount * 20, this.tmp);
     this.tail
       .setPosition(this.tmp.x + shake, this.tmp.y)
-      .setRotation(this.baseAngle + this.flip * Phaser.Math.DegToRad(D.tailTip.angleDeg + tw));
+      .setRotation(this.baseAngle + this.flip * Phaser.Math.DegToRad(R.tail.angleDeg + R.twitchDeg * bump));
 
     // Head: breath bob, stage-3 lift, wake lift + turn.
     const pose = this.headPose();
-    this.toWorld(D.neck.x + pose.forward, D.neck.y + breathe * B.headBobPx, this.tmp);
+    this.toWorld(R.neck.x + pose.forward, R.neck.y + breathe * B.headBobPx, this.tmp);
     this.head
       .setPosition(this.tmp.x + shake, this.tmp.y)
-      .setScale(S * pose.scale)
+      .setScale(R.headScale * pose.scale)
       .setRotation(this.baseAngle + this.flip * pose.turn);
 
-    // Eyes and their glow follow the head.
+    // Eye glow (and the drawn eyelids) follow the head.
     const G = D.eyeGlow;
     const pulse = 0.75 + 0.25 * Math.sin((now / D.alert.glowPulseMs) * Math.PI * 2);
-    for (let i = 0; i < this.eyes.length; i++) {
+    for (let i = 0; i < this.glows.length; i++) {
       const open = this.eyeOpen[i];
       const eye = this.eyes[i];
       const glow = this.glows[i];
-      if (open <= 0.01) {
-        eye.setVisible(false);
+      const at = R.eyes[i];
+      if (open <= 0.01 || !at) {
+        eye?.setVisible(false);
         glow.setVisible(false);
         continue;
       }
-      this.headPoint(D.eyes[i].x, D.eyes[i].y, this.tmp);
+      this.headPoint(at.x, at.y, this.tmp);
       const full = open > 0.75;
       eye
-        .setTexture(full ? TEXTURE_KEYS.dragonEyeOpen : TEXTURE_KEYS.dragonEyeHalf)
+        ?.setTexture(full ? TEXTURE_KEYS.dragonEyeOpen : TEXTURE_KEYS.dragonEyeHalf)
         .setPosition(this.tmp.x + shake, this.tmp.y)
         .setRotation(this.head.rotation)
-        .setScale(S * pose.scale, S * pose.scale * (full ? 1 : Math.min(1, open * 2)))
+        .setScale(R.headScale * pose.scale, R.headScale * pose.scale * (full ? 1 : Math.min(1, open * 2)))
         .setVisible(true);
       glow
         .setPosition(this.tmp.x + shake, this.tmp.y)
@@ -404,7 +472,7 @@ export class Dragon implements NoiseListener {
 
   private layoutZs(): void {
     const Z = D.zzz;
-    this.headPoint(D.eyes[0].x, D.eyes[0].y - 6, this.tmp);
+    this.headPoint(this.rig.eyes[0].x, this.rig.eyes[0].y - 6, this.tmp);
     const baseX = this.tmp.x;
     const baseY = this.tmp.y;
     for (let i = 0; i < this.zs.length; i++) {
@@ -454,6 +522,69 @@ export class Dragon implements NoiseListener {
     for (const at of [M.stage2, M.stage3]) g.fillRect(x + (w * at) / M.max - 1, y, 2, h);
   }
 
+  /** Code-drawn look: part positions straight from TUNING.dragon. */
+  private static drawnRig(): DragonRig {
+    return {
+      bodyScale: S,
+      headScale: S,
+      body: { x: 0, y: 0 },
+      neck: { ...D.neck },
+      mouth: { ...D.mouth },
+      nostril: { ...D.nostril },
+      eyes: D.eyes.map((e) => ({ ...e })),
+      tail: { ...D.tailTip },
+      twitchDeg: D.stir.twitchDeg,
+    };
+  }
+
+  /**
+   * Painted look: the body is centered so body + head together sit on the footprint center,
+   * the neck is the body's stump, the tail pivot is where the tip was cut.
+   * Head points (eyes, mouth, nostril) are filled in by setHeadArt().
+   */
+  private static artRig(): DragonRig {
+    const bs = ART_SCALE * DA.displayScale;
+    const hs = bs * DA.headScale;
+    const B = ART_ANCHORS.dragon.body;
+    const T = ART_ANCHORS.dragon.tail;
+    const H = ART_ANCHORS.dragon.heads.sleep;
+    const neckX = (B.neck.x - B.width / 2) * bs;
+    const neckY = (B.neck.y - B.height / 2) * bs;
+    const left = (-B.width / 2) * bs;
+    const right = neckX + (H.width - H.neck.x) * hs;
+    const ox = -(left + right) / 2 + DA.offsetX;
+    const oy = DA.offsetY;
+    return {
+      bodyScale: bs,
+      headScale: hs,
+      body: { x: ox, y: oy },
+      neck: { x: ox + neckX, y: oy + neckY },
+      mouth: { x: 0, y: 0 },
+      nostril: { x: 0, y: 0 },
+      eyes: [],
+      tail: {
+        x: ox + (T.x + T.pivot.x - B.width / 2) * bs,
+        y: oy + (T.y + T.pivot.y - B.height / 2) * bs,
+        angleDeg: 0,
+      },
+      twitchDeg: DA.tailTwitch ? DA.tailTwitchDeg : 0,
+    };
+  }
+
+  /** Painted look: swaps the head image and its points (no-op if it is already showing). */
+  private setHeadArt(name: HeadArt): void {
+    if (name === this.headArt) return;
+    this.headArt = name;
+    const H = ART_ANCHORS.dragon.heads[name];
+    const hs = this.rig.headScale;
+    const ox = H.neck.x / H.width;
+    this.head.setTexture(artKey(`dragon_head_${name}`)).setOrigin(this.flip < 0 ? 1 - ox : ox, H.neck.y / H.height);
+    const scaled = (p: Point) => ({ x: p.x * hs, y: p.y * hs });
+    this.rig.mouth = scaled(H.mouth);
+    this.rig.nostril = scaled(H.nostril);
+    this.rig.eyes = H.eyes.map(scaled);
+  }
+
   /** Art frame point (head facing right, origin = footprint center) to world px. */
   private toWorld(lx: number, ly: number, out: Phaser.Math.Vector2): Phaser.Math.Vector2 {
     const x = lx * this.flip;
@@ -467,7 +598,8 @@ export class Dragon implements NoiseListener {
     const s = Math.sin(pose.turn);
     const px = hx * pose.scale;
     const py = hy * pose.scale;
-    return this.toWorld(D.neck.x + pose.forward + px * c - py * s, D.neck.y + px * s + py * c, out);
+    const n = this.rig.neck;
+    return this.toWorld(n.x + pose.forward + px * c - py * s, n.y + px * s + py * c, out);
   }
 }
 

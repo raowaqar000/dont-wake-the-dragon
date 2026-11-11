@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
+import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 
 const P = TUNING.portals;
+const PA = TUNING.art.portal;
 
 /**
- * One end of a portal pair: dark ring on the floor, two counter-spinning swirls,
- * and a soft glow drawn above the darkness so it shows from afar.
+ * One end of a portal pair and a soft glow drawn above the darkness so it shows from afar.
+ * Painted art: the stone portal image, a spinning swirl and a thin glow ring in the pair's color.
+ * Code-drawn fallback: dark ring on the floor and two counter-spinning swirls.
  * PortalSystem owns the teleport logic; this is the visual + arm state.
  */
 export class Portal {
@@ -17,6 +20,9 @@ export class Portal {
 
   private readonly scene: Phaser.Scene;
   private readonly swirls: Phaser.GameObjects.Image[];
+  /** Painted art: the stone portal (pulses on burst) and the pair-colored ring. */
+  private readonly artImage?: Phaser.GameObjects.Image;
+  private readonly artRing?: Phaser.GameObjects.Graphics;
 
   constructor(
     scene: Phaser.Scene,
@@ -26,6 +32,34 @@ export class Portal {
   ) {
     this.scene = scene;
     const size = P.swirlSize;
+
+    if (hasArt(scene, 'portal')) {
+      this.artImage = scene.add
+        .image(x, y, artKey('portal'))
+        .setScale(ART_SCALE * PA.displayScale)
+        .setDepth(P.depth - 1);
+      const w = this.artImage.displayWidth;
+      const h = this.artImage.displayHeight;
+      // Spinning swirl in the pair's color, flattened (by its container) to match the oval.
+      const swirl = scene.add
+        .image(0, 0, TEXTURE_KEYS.portalSwirl)
+        .setDisplaySize(w * PA.swirlScale, w * PA.swirlScale)
+        .setTint(color)
+        .setAlpha(PA.swirlAlpha)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      scene.add.container(x, y, [swirl]).setScale(1, PA.swirlFlatten).setDepth(P.depth);
+      scene.tweens.add({ targets: swirl, angle: 360, duration: P.swirlSpinMs, repeat: -1 });
+      this.swirls = [swirl];
+      // Thin glow ring in the pair's color, above the darkness so pairs read from afar.
+      this.artRing = scene.add
+        .graphics({ x, y })
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(TUNING.lighting.depth + 1);
+      this.artRing.lineStyle(PA.ringWidth, color, PA.ringAlpha);
+      this.artRing.strokeEllipse(0, 0, w * PA.ringScale * 2, h * PA.ringScale * 2 * PA.swirlFlatten);
+      this.addGlow(scene, x, y, color);
+      return;
+    }
 
     const ring = scene.add.graphics({ x, y }).setDepth(P.depth - 1);
     ring.fillStyle(0x000000, 0.5);
@@ -50,7 +84,11 @@ export class Portal {
 
     scene.tweens.add({ targets: outer, angle: 360, duration: P.swirlSpinMs, repeat: -1 });
     scene.tweens.add({ targets: inner, angle: -360, duration: P.swirlSpinMs * 0.7, repeat: -1 });
+    this.addGlow(scene, x, y, color);
+  }
 
+  /** Soft glow above the darkness, pulsing. */
+  private addGlow(scene: Phaser.Scene, x: number, y: number, color: number): void {
     const glow = scene.add
       .image(x, y, TEXTURE_KEYS.softGlow)
       .setDisplaySize(P.glowRadius * 2, P.glowRadius * 2)
@@ -72,6 +110,11 @@ export class Portal {
   setArmed(armed: boolean, rearmAt = 0): void {
     this.armed = armed;
     this.rearmAt = rearmAt;
+    if (this.artImage) {
+      this.swirls[0].setAlpha(PA.swirlAlpha * (armed ? 1 : P.disarmedAlpha));
+      this.artRing?.setAlpha(armed ? 1 : P.disarmedAlpha);
+      return;
+    }
     this.swirls[0].setAlpha(armed ? 1 : P.disarmedAlpha);
   }
 
@@ -95,7 +138,7 @@ export class Portal {
       onComplete: () => ring.destroy(),
     });
 
-    const outer = this.swirls[0];
+    const outer = this.artImage ?? this.swirls[0];
     const base = outer.scale;
     this.scene.tweens.add({
       targets: outer,

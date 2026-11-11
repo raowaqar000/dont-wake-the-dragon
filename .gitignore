@@ -23,3 +23,6 @@ android/.idea
 .DS_Store
 Thumbs.db
 .idea
+
+# Asset previews written by npm run assets
+art/preview

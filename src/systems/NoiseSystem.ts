@@ -6,7 +6,7 @@ const N = TUNING.noise;
 const R = N.ring;
 
 /** Where a noise came from. Later: noisy floors ('floor'), thrown objects ('throw'). */
-export type NoiseSource = 'footstep' | 'chest' | 'portal' | 'floor' | 'throw';
+export type NoiseSource = 'footstep' | 'chest' | 'portal' | 'floor' | 'throw' | 'land' | 'trap';
 
 /** Anything that can hear noise (dragons now, maybe guards later). */
 export interface NoiseListener {

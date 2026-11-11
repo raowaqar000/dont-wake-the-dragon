@@ -58,6 +58,33 @@ export interface ParsedLevel {
   dragons: DragonSpawn[];
   /** Merged wall rectangles. */
   wallRects: TileRect[];
+
+  // Feature 8: gaps and troll traps ---------------------------------------
+  /** '-' open pits from the start (not walls; jumpable). */
+  gaps: TilePos[];
+  trapFloors: TilePos[];
+  popSpikes: TilePos[];
+  rocks: TilePos[];
+  closingWalls: ClosingWallSpec[];
+  fakeCoins: TilePos[];
+  fakeGems: TilePos[];
+  /** Fake wall tiles: walkable, drawn as wall. */
+  fakeWalls: TilePos[];
+  movingPits: TilePos[];
+  /** Real exit ('e' tiles) of a runaway exit, or null. */
+  realExit: TileRect | null;
+  realExitTiles: TilePos[];
+  trapLinks: { from: TilePos; to: TilePos[] }[];
+}
+
+/**
+ * Closing walls: '[' on the left, ']' on the right of the same rows, a corridor of
+ * walkable tiles between them. Both slabs slide in and meet in the middle.
+ */
+export interface ClosingWallSpec {
+  index: number;
+  /** Corridor between the walls (tiles). */
+  corridor: TileRect;
 }
 
 export interface DragonSpawn {
@@ -90,6 +117,15 @@ export function parseLevel(data: LevelData): ParsedLevel {
   const gems: TilePos[] = [];
   const chests: TilePos[] = [];
   const dragonTiles: TilePos[] = [];
+  const gaps: TilePos[] = [];
+  const trapFloors: TilePos[] = [];
+  const popSpikes: TilePos[] = [];
+  const rocks: TilePos[] = [];
+  const fakeCoins: TilePos[] = [];
+  const fakeGems: TilePos[] = [];
+  const fakeWalls: TilePos[] = [];
+  const movingPits: TilePos[] = [];
+  const realExitTiles: TilePos[] = [];
   const warned = new Set<string>();
 
   grid.forEach((row, y) => {
@@ -104,7 +140,16 @@ export function parseLevel(data: LevelData): ParsedLevel {
         warned.add(ch);
         console.warn(`[${data.id}] tile '${ch}' is reserved but not implemented yet; treated as floor`);
       }
-      line.push(ch === TILE.wall);
+      line.push(ch === TILE.wall || ch === TILE.closingWallLeft || ch === TILE.closingWallRight);
+      if (ch === TILE.gap) gaps.push({ x, y });
+      else if (ch === TILE.trapFloor) trapFloors.push({ x, y });
+      else if (ch === TILE.popSpikes) popSpikes.push({ x, y });
+      else if (ch === TILE.fallingRock) rocks.push({ x, y });
+      else if (ch === TILE.fakeCoin) fakeCoins.push({ x, y });
+      else if (ch === TILE.fakeGem) fakeGems.push({ x, y });
+      else if (ch === TILE.fakeWall) fakeWalls.push({ x, y });
+      else if (ch === TILE.movingPit) movingPits.push({ x, y });
+      else if (ch === TILE.realExit) realExitTiles.push({ x, y });
       if (ch === TILE.playerStart) starts.push({ x, y });
       else if (ch === TILE.exit) exitTiles.push({ x, y });
       else if (ch === TILE.spikes) spikeTiles.push({ x, y });
@@ -124,6 +169,11 @@ export function parseLevel(data: LevelData): ParsedLevel {
 
   if (starts.length !== 1) throw new Error(`[${data.id}] needs exactly one '${TILE.playerStart}', found ${starts.length}`);
   if (exitTiles.length === 0) throw new Error(`[${data.id}] needs at least one '${TILE.exit}'`);
+  if (realExitTiles.length > 0) {
+    const a = boundsOf(exitTiles);
+    const b = boundsOf(realExitTiles);
+    if (a.w !== b.w || a.h !== b.h) throw new Error(`[${data.id}] runaway exit: 'e' tiles must match the 'E' size (${a.w}x${a.h})`);
+  }
 
   const portals: PortalPair[] = [];
   for (const [id, tiles] of [...portalTiles].sort(([a], [b]) => a.localeCompare(b))) {
@@ -132,7 +182,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
   }
 
   // Treasure on top of other tiles: only on walkable tiles that hold nothing else.
-  const onTileOk = new Set<string>([TILE.floor, TILE.crumble, TILE.spikes]);
+  const onTileOk = new Set<string>([TILE.floor, TILE.crumble, TILE.spikes, TILE.trapFloor, TILE.popSpikes]);
   const placed = new Set<string>();
   for (const t of data.treasureOnTiles ?? []) {
     const ch = grid[t.y]?.[t.x];
@@ -164,6 +214,90 @@ export function parseLevel(data: LevelData): ParsedLevel {
     chests,
     dragons: groupDragons(data, dragonTiles, wall),
     wallRects: mergeWalls(wall),
+    gaps,
+    trapFloors,
+    popSpikes,
+    rocks,
+    closingWalls: parseClosingWalls(data),
+    fakeCoins,
+    fakeGems,
+    fakeWalls,
+    movingPits,
+    realExit: realExitTiles.length > 0 ? boundsOf(realExitTiles) : null,
+    realExitTiles,
+    trapLinks: (data.trapLinks ?? []).map((l) => ({ from: { x: l.from.x, y: l.from.y }, to: l.to.map((t) => ({ x: t.x, y: t.y })) })),
+  };
+}
+
+function boundsOf(tiles: TilePos[]): TileRect {
+  const x0 = Math.min(...tiles.map((t) => t.x));
+  const y0 = Math.min(...tiles.map((t) => t.y));
+  return { x: x0, y: y0, w: Math.max(...tiles.map((t) => t.x)) - x0 + 1, h: Math.max(...tiles.map((t) => t.y)) - y0 + 1 };
+}
+
+/**
+ * Each row with '[' ... ']' gives a corridor span (the tiles between them).
+ * Consecutive rows with the same span merge into one closing-wall pair.
+ */
+function parseClosingWalls(data: LevelData): ClosingWallSpec[] {
+  const L = TILE.closingWallLeft;
+  const R = TILE.closingWallRight;
+  const specs: ClosingWallSpec[] = [];
+  let open: ClosingWallSpec | null = null;
+  data.grid.forEach((row, y) => {
+    const l = row.lastIndexOf(L);
+    const r = row.indexOf(R);
+    if (l < 0 && r < 0) {
+      open = null;
+      return;
+    }
+    if (l < 0 || r < 0 || r < l + 2) {
+      throw new Error(`[${data.id}] row ${y}: closing walls need '${L}' left of '${R}' with floor between`);
+    }
+    for (let x = l + 1; x < r; x++) {
+      const ch = row[x];
+      if (ch === TILE.wall || ch === L || ch === R || ch === TILE.chest || ch === TILE.dragon) {
+        throw new Error(`[${data.id}] closing-wall corridor at ${x},${y} must be walkable`);
+      }
+    }
+    const prev: ClosingWallSpec | null = open;
+    if (prev && prev.corridor.x === l + 1 && prev.corridor.w === r - l - 1 && prev.corridor.y + prev.corridor.h === y) {
+      prev.corridor.h++;
+    } else {
+      open = { index: specs.length, corridor: { x: l + 1, y, w: r - l - 1, h: 1 } };
+      specs.push(open);
+    }
+  });
+  return specs;
+}
+
+/**
+ * Trap variation between attempts: returns a copy of the level with each listed trap
+ * moved to [original, ...alt][attempt % n]. Links pointing at a moved trap follow it.
+ * Returns `data` itself when varyTraps is off.
+ */
+export function applyTrapVariants(data: LevelData, attempt: number): LevelData {
+  if (!data.varyTraps || !data.trapVariants?.length) return data;
+  const grid = data.grid.map((r) => r.split(''));
+  const moved = new Map<string, TilePos>();
+  for (const v of data.trapVariants) {
+    const choice = attempt % (v.alt.length + 1);
+    if (choice === 0) continue;
+    const to = v.alt[choice - 1];
+    const ch = grid[v.y]?.[v.x];
+    if (ch === undefined || grid[to.y]?.[to.x] !== TILE.floor) {
+      console.warn(`[${data.id}] trapVariant ${v.x},${v.y} -> ${to.x},${to.y} skipped (target must be '.')`);
+      continue;
+    }
+    grid[to.y][to.x] = ch;
+    grid[v.y][v.x] = TILE.floor;
+    moved.set(`${v.x},${v.y}`, { x: to.x, y: to.y });
+  }
+  const follow = (t: { x: number; y: number }) => moved.get(`${t.x},${t.y}`) ?? t;
+  return {
+    ...data,
+    grid: grid.map((r) => r.join('')),
+    trapLinks: data.trapLinks?.map((l) => ({ from: follow(l.from), to: l.to.map(follow) })),
   };
 }
 

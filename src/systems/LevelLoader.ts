@@ -1,8 +1,10 @@
 import Phaser from 'phaser';
 import { TUNING } from '../config';
 import type { LevelData } from '../levels/types';
-import { parseLevel, type ParsedLevel, type TilePos } from './LevelParser';
+import { parseLevel, type ParsedLevel } from './LevelParser';
 import { validateLevel, walkSeconds } from './LevelValidator';
+import { SpikeTrap } from '../entities/SpikeTrap';
+import { ART_SCALE, artKey, hasArt } from './ArtAssets';
 import { SPIKE_LAYOUT } from './TrapTextureFactory';
 
 export { parseLevel, type ParsedLevel } from './LevelParser';
@@ -16,11 +18,11 @@ export interface BuiltLevel {
   playerStart: Phaser.Math.Vector2;
   exitRect: Phaser.Geom.Rectangle;
   walls: Phaser.Physics.Arcade.StaticGroup;
-  /** Adds a solid wall body on a tile at runtime (collapsed floor). */
-  addWallTile: (tile: TilePos) => void;
+  /** Real exit rect (runaway exit) or null. */
+  realExitRect: Phaser.Geom.Rectangle | null;
 }
 
-/** Builds physics walls and the baked floor/wall image for a level. */
+/** Builds physics walls and the baked floor/wall image for a level (painted tiles, or flat colors as a fallback). */
 export class LevelLoader {
   static build(scene: Phaser.Scene, data: LevelData): BuiltLevel {
     const parsed = parseLevel(data);
@@ -54,14 +56,20 @@ export class LevelLoader {
       playerStart: new Phaser.Math.Vector2((parsed.start.x + 0.5) * ts, (parsed.start.y + 0.5) * ts),
       exitRect: new Phaser.Geom.Rectangle(parsed.exit.x * ts, parsed.exit.y * ts, parsed.exit.w * ts, parsed.exit.h * ts),
       walls,
-      addWallTile: (t) => addRect(t.x, t.y, 1, 1),
+      realExitRect: parsed.realExit
+        ? new Phaser.Geom.Rectangle(parsed.realExit.x * ts, parsed.realExit.y * ts, parsed.realExit.w * ts, parsed.realExit.h * ts)
+        : null,
     };
   }
 
   /** Dev-only: path search over the level. Throws on unreachable exit / floor. */
   private static check(data: LevelData, parsed: ParsedLevel): void {
     const T = TUNING.treasure;
-    const report = validateLevel(parsed, { coin: T.coin.value, gem: T.gem.value, chest: T.chest.value });
+    const report = validateLevel(
+      parsed,
+      { coin: T.coin.value, gem: T.gem.value, chest: T.chest.value },
+      { maxJumpTiles: TUNING.jump.maxJumpTiles },
+    );
     if (report.errors.length > 0) throw new Error(`[${data.id}] ${report.errors.join('; ')}`);
     const secs = (tiles: number) => walkSeconds(tiles, L.tileSize, TUNING.movement.sneakSpeed).toFixed(0);
     console.info(
@@ -73,11 +81,126 @@ export class LevelLoader {
     console.info(`[${data.id}] dragons: ${parsed.dragons.map((d) => `${d.rect.x},${d.rect.y} ${d.facing}`).join(' | ') || 'none'}`);
   }
 
-  /** Draws every tile once into a single RenderTexture (one draw call per frame). */
+  /**
+   * Draws every tile once into a single RenderTexture (one draw call per frame).
+   * Painted art: tiled floor and wall textures, then soft edges. Fallback: flat colored tiles.
+   */
   private static drawTiles(scene: Phaser.Scene, seed: string, p: ParsedLevel, w: number, h: number): void {
     const ts = L.tileSize;
-    const rng = new Phaser.Math.RandomDataGenerator([seed]);
+    const rt = scene.add.renderTexture(0, 0, w, h).setOrigin(0, 0).setDepth(L.depth);
     const g = scene.make.graphics({ x: 0, y: 0 }, false);
+
+    if (hasArt(scene, 'floor_tile', 'wall_tile')) LevelLoader.drawArtTiles(scene, rt, g, p, w, h);
+    else LevelLoader.drawFlatTiles(g, seed, p);
+
+    // Spike plates with holes (the spikes themselves are animated sprites). Painted spikes bring their own plate.
+    if (!SpikeTrap.usesArt(scene)) {
+      const S = TUNING.traps.spikes;
+      for (const group of p.spikeGroups) {
+        for (const t of group.tiles) {
+          const px = t.x * ts;
+          const py = t.y * ts;
+          g.fillStyle(S.plateEdgeColor, 1);
+          g.fillRect(px + 2, py + 2, ts - 4, ts - 4);
+          g.fillStyle(S.plateColor, 1);
+          g.fillRect(px + 4, py + 4, ts - 8, ts - 8);
+          g.fillStyle(S.holeColor, 1);
+          for (const hole of SPIKE_LAYOUT) g.fillEllipse(px + hole.x * ts, py + hole.y * ts - 2, ts * 0.2, ts * 0.1);
+        }
+      }
+    }
+
+    // Pits under crumbling floors; the cracked slab sprite hides them until collapse.
+    const pitArt = hasArt(scene, 'pit');
+    if (!pitArt) {
+      const C = TUNING.traps.crumble;
+      for (const t of [...p.crumbles, ...p.gaps]) {
+        const px = t.x * ts;
+        const py = t.y * ts;
+        g.fillStyle(C.pitRimColor, 1);
+        g.fillRect(px, py, ts, ts);
+        g.fillStyle(C.pitColor, 1);
+        g.fillRect(px + 4, py + 6, ts - 8, ts - 8);
+      }
+    }
+
+    rt.draw(g);
+    g.destroy();
+
+    if (pitArt) {
+      const scale = ART_SCALE * TUNING.art.pit.displayScale;
+      for (const t of [...p.crumbles, ...p.gaps]) rt.stamp(artKey('pit'), undefined, (t.x + 0.5) * ts, (t.y + 0.5) * ts, { scale });
+    }
+  }
+
+  /** Painted floor + walls (tiled textures), then the wall top edge, floor shadow and outline into `g`. */
+  private static drawArtTiles(
+    scene: Phaser.Scene,
+    rt: Phaser.GameObjects.RenderTexture,
+    g: Phaser.GameObjects.Graphics,
+    p: ParsedLevel,
+    w: number,
+    h: number,
+  ): void {
+    const ts = L.tileSize;
+    const A = TUNING.art.level;
+
+    const floor = scene.make.tileSprite({ x: 0, y: 0, width: w, height: h, key: artKey('floor_tile') }, false);
+    floor.setOrigin(0, 0).setTileScale(ART_SCALE * A.floorScale).setTint(A.floorTint);
+    rt.draw(floor);
+    floor.destroy();
+
+    // Walls: tile the rock over the whole level on a scratch texture, cut out the floor, copy over.
+    const walls = scene.make.renderTexture({ x: 0, y: 0, width: w, height: h }, false);
+    const rock = scene.make.tileSprite({ x: 0, y: 0, width: w, height: h, key: artKey('wall_tile') }, false);
+    rock.setOrigin(0, 0).setTileScale(ART_SCALE * A.wallScale).setTint(A.wallTint);
+    walls.draw(rock);
+    rock.destroy();
+    const holes = scene.make.graphics({ x: 0, y: 0 }, false);
+    holes.fillStyle(0xffffff, 1);
+    for (let y = 0; y < p.rows; y++) {
+      for (let x = 0; x < p.cols; x++) if (!p.wall[y][x]) holes.fillRect(x * ts, y * ts, ts, ts);
+    }
+    walls.erase(holes);
+    holes.destroy();
+    rt.draw(walls);
+    walls.destroy();
+
+    const isWall = (x: number, y: number) => y < 0 || x < 0 || y >= p.rows || x >= p.cols || p.wall[y][x];
+    const o = A.outlineWidth;
+    for (let y = 0; y < p.rows; y++) {
+      for (let x = 0; x < p.cols; x++) {
+        const px = x * ts;
+        const py = y * ts;
+        if (p.wall[y][x]) {
+          // Lighter top edge where the wall meets open floor above it.
+          if (A.wallEdge && y > 0 && !p.wall[y - 1][x]) {
+            g.fillStyle(L.wallEdgeColor, A.wallEdgeAlpha);
+            g.fillRect(px, py, ts, L.wallEdgeHeight);
+          }
+          continue;
+        }
+        // Soft shadow cast by a wall directly above.
+        if (A.floorShadow && isWall(x, y - 1)) {
+          g.fillStyle(0x000000, A.floorShadowAlpha);
+          g.fillRect(px, py, ts, L.wallEdgeHeight);
+        }
+        // Dark line where floor meets wall.
+        if (o > 0) {
+          g.fillStyle(A.outlineColor, A.outlineAlpha);
+          if (isWall(x, y - 1)) g.fillRect(px, py, ts, o);
+          if (isWall(x, y + 1)) g.fillRect(px, py + ts - o, ts, o);
+          if (isWall(x - 1, y)) g.fillRect(px, py, o, ts);
+          if (isWall(x + 1, y)) g.fillRect(px + ts - o, py, o, ts);
+        }
+      }
+    }
+  }
+
+  /** Code-drawn fallback: flat colored floor and wall tiles with speckles. */
+  private static drawFlatTiles(g: Phaser.GameObjects.Graphics, seed: string, p: ParsedLevel): void {
+    const ts = L.tileSize;
+    const rng = new Phaser.Math.RandomDataGenerator([seed]);
     const floor = Phaser.Display.Color.IntegerToColor(L.floorColor);
     const rock = Phaser.Display.Color.IntegerToColor(L.wallColor);
 
@@ -115,36 +238,6 @@ export class LevelLoader {
         }
       }
     }
-
-    // Spike plates with holes (the spikes themselves are animated sprites).
-    const S = TUNING.traps.spikes;
-    for (const group of p.spikeGroups) {
-      for (const t of group.tiles) {
-        const px = t.x * ts;
-        const py = t.y * ts;
-        g.fillStyle(S.plateEdgeColor, 1);
-        g.fillRect(px + 2, py + 2, ts - 4, ts - 4);
-        g.fillStyle(S.plateColor, 1);
-        g.fillRect(px + 4, py + 4, ts - 8, ts - 8);
-        g.fillStyle(S.holeColor, 1);
-        for (const h of SPIKE_LAYOUT) g.fillEllipse(px + h.x * ts, py + h.y * ts - 2, ts * 0.2, ts * 0.1);
-      }
-    }
-
-    // Pits under crumbling floors; the cracked slab sprite hides them until collapse.
-    const C = TUNING.traps.crumble;
-    for (const t of p.crumbles) {
-      const px = t.x * ts;
-      const py = t.y * ts;
-      g.fillStyle(C.pitRimColor, 1);
-      g.fillRect(px, py, ts, ts);
-      g.fillStyle(C.pitColor, 1);
-      g.fillRect(px + 4, py + 6, ts - 8, ts - 8);
-    }
-
-    const rt = scene.add.renderTexture(0, 0, w, h).setOrigin(0, 0).setDepth(L.depth);
-    rt.draw(g);
-    g.destroy();
   }
 }
 

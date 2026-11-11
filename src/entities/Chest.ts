@@ -1,17 +1,18 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import type { TilePos } from '../systems/LevelParser';
+import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { TREASURE_TEXTURE_SCALE } from '../systems/TreasureTextureFactory';
 
 const C = TUNING.treasure.chest;
-const S = TREASURE_TEXTURE_SCALE;
+const CA = TUNING.art.chest;
 
 export type ChestState = 'closed' | 'open';
 
 /**
  * Solid treasure chest (its physics body is added by LevelLoader).
  * Faint glow above the darkness so it shows from afar, a progress ring while
- * the player stands still next to it, and a lid-open squash. LootSystem owns the logic.
+ * the player stands still next to it, and a lid-open squash (painted art: closed -> open image with a squash-and-pop). LootSystem owns the logic.
  */
 export class Chest {
   public state: ChestState = 'closed';
@@ -20,6 +21,9 @@ export class Chest {
   public readonly value = C.value;
 
   private readonly image: Phaser.GameObjects.Image;
+  /** Painted art (closed / open images) or the code-drawn fallback. */
+  private readonly art: boolean;
+  private readonly baseScale: number;
   private readonly glow: Phaser.GameObjects.Image;
   private readonly glowTween: Phaser.Tweens.Tween;
   private readonly ring: Phaser.GameObjects.Graphics;
@@ -34,7 +38,19 @@ export class Chest {
     this.x = (tile.x + 0.5) * ts;
     this.y = (tile.y + 0.5) * ts;
 
-    this.image = scene.add.image(this.x, this.y, TEXTURE_KEYS.chest).setScale(S).setDepth(TUNING.treasure.depth);
+    this.art = hasArt(scene, 'chest_closed', 'chest_open');
+    if (this.art) {
+      // Painted chest stands on its tile (bottom origin), so the taller open image keeps its base.
+      this.baseScale = ART_SCALE * CA.displayScale;
+      this.image = scene.add
+        .image(this.x, this.y + ts / 2 + CA.offsetY, artKey('chest_closed'))
+        .setOrigin(0.5, 1)
+        .setScale(this.baseScale)
+        .setDepth(TUNING.treasure.depth);
+    } else {
+      this.baseScale = TREASURE_TEXTURE_SCALE;
+      this.image = scene.add.image(this.x, this.y, TEXTURE_KEYS.chest).setScale(this.baseScale).setDepth(TUNING.treasure.depth);
+    }
 
     this.glow = scene.add
       .image(this.x, this.y, TEXTURE_KEYS.softGlow)
@@ -97,11 +113,12 @@ export class Chest {
     this.ringFade?.stop();
     this.ring.clear();
 
-    this.image.setTexture(TEXTURE_KEYS.chestOpen);
+    this.image.setTexture(this.art ? artKey('chest_open') : TEXTURE_KEYS.chestOpen);
+    const s = this.baseScale;
     this.scene.tweens.add({
       targets: this.image,
-      scaleX: { from: S * 1.25, to: S },
-      scaleY: { from: S * 0.7, to: S },
+      scaleX: { from: s * 1.25, to: s },
+      scaleY: { from: s * 0.7, to: s },
       duration: C.openSquashMs,
       ease: 'Back.easeOut',
     });

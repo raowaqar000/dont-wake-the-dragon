@@ -12,8 +12,8 @@ export type TrapKind = 'spikes' | 'pit';
 
 export interface TrapSystemDeps {
   player: Player;
-  /** Turns a tile into a solid wall (collapsed floor). */
-  addWallTile: (tile: TilePos) => void;
+  /** Turns a tile into an open pit (collapsed floor). JumpSystem handles falling in. */
+  addPit: (tile: TilePos) => void;
   onCaught: (kind: TrapKind, effect: FailEffect) => void;
   /** A crumbling floor just collapsed (treasure on it is lost). */
   onFloorCollapsed?: (tile: TilePos) => void;
@@ -69,7 +69,8 @@ export class TrapSystem {
     const now = this.scene.time.now;
     for (const s of this.spikes) s.update(now);
     for (const c of this.crumbles) c.update(now);
-    if (this.deps.isPaused()) return;
+    // In the air: spikes can't hit and crumbling floors don't notice you.
+    if (this.deps.isPaused() || this.deps.player.airborne) return;
 
     const { x, y } = this.deps.player;
     const r = TUNING.player.bodyRadius;
@@ -85,12 +86,9 @@ export class TrapSystem {
     }
   }
 
+  /** The slab is gone: the tile is a pit now (still jumpable; JumpSystem decides falls). */
   private onCollapse(tile: CrumbleTile): void {
-    this.deps.addWallTile(tile.tile);
+    this.deps.addPit(tile.tile);
     this.deps.onFloorCollapsed?.(tile.tile);
-    const { x, y } = this.deps.player;
-    if (!this.deps.isPaused() && tile.contains(x, y, T.crumble.fallInset)) {
-      this.deps.onCaught('pit', { kind: 'fall', x: tile.cx, y: tile.cy });
-    }
   }
 }

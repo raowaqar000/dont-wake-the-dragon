@@ -1,16 +1,20 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import type { SpikeGroup, TilePos } from '../systems/LevelParser';
+import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { SPIKE_LAYOUT, TRAP_TEXTURE_SCALE } from '../systems/TrapTextureFactory';
 
 const S = TUNING.traps.spikes;
+const SA = TUNING.art.spikes;
 
 export type SpikeState = 'down' | 'warn' | 'rising' | 'up' | 'lowering';
 
 /**
  * One group of touching spike tiles that move together on a timer:
  *   down (downMs, last warnMs shakes) -> rising -> up (hurts) -> lowering -> down.
- * The hole plates are baked into the level texture; this draws the spikes.
+ * Painted art: each tile shows the "spikes down" plate, and the "spikes up" image fades in
+ * over it (sliding up a little) as the spikes rise. Code-drawn fallback: the hole plates are
+ * baked into the level texture and this draws the spikes.
  */
 export class SpikeTrap {
   public state: SpikeState = 'down';
@@ -20,6 +24,13 @@ export class SpikeTrap {
   private readonly upMs: number;
   private readonly offsetMs: number;
   private readonly spikes: { img: Phaser.GameObjects.Image; baseX: number }[] = [];
+  /** Painted art: the raised-spike image per tile (its base plate never moves). */
+  private readonly raised: { img: Phaser.GameObjects.Image; baseX: number; baseY: number }[] = [];
+
+  /** True if the painted spike tiles loaded (LevelLoader then skips the baked plates). */
+  static usesArt(scene: Phaser.Scene): boolean {
+    return hasArt(scene, 'spikes_up', 'spikes_down');
+  }
 
   constructor(scene: Phaser.Scene, group: SpikeGroup) {
     const ts = TUNING.level.tileSize;
@@ -27,6 +38,18 @@ export class SpikeTrap {
     this.downMs = group.override?.downMs ?? S.downMs;
     this.upMs = group.override?.upMs ?? S.upMs;
     this.offsetMs = group.override?.offsetMs ?? group.index * S.groupOffsetMs;
+
+    if (SpikeTrap.usesArt(scene)) {
+      const scale = ART_SCALE * SA.displayScale;
+      for (const t of group.tiles) {
+        const x = (t.x + 0.5) * ts;
+        const y = (t.y + 0.5) * ts;
+        scene.add.image(x, y, artKey('spikes_down')).setScale(scale).setDepth(S.depth);
+        const img = scene.add.image(x, y, artKey('spikes_up')).setScale(scale).setDepth(S.depth + 0.01).setVisible(false);
+        this.raised.push({ img, baseX: x, baseY: y });
+      }
+      return;
+    }
 
     for (const t of group.tiles) {
       for (const p of SPIKE_LAYOUT) {
@@ -72,6 +95,11 @@ export class SpikeTrap {
     }
 
     const shake = this.state === 'warn' ? Math.sin(now * 0.09) * S.warnShakePx : 0;
+    for (const r of this.raised) {
+      r.img.setVisible(height > 0);
+      r.img.setAlpha(height);
+      r.img.setPosition(r.baseX + shake, r.baseY + (1 - height) * SA.riseSlidePx);
+    }
     for (const s of this.spikes) {
       s.img.setVisible(height > 0);
       s.img.scaleY = TRAP_TEXTURE_SCALE * height;

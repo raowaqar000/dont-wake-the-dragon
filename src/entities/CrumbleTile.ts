@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import type { TilePos } from '../systems/LevelParser';
+import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { TRAP_TEXTURE_SCALE } from '../systems/TrapTextureFactory';
 
 const C = TUNING.traps.crumble;
@@ -18,6 +19,7 @@ export class CrumbleTile {
   public readonly cy: number;
 
   private readonly image: Phaser.GameObjects.Image;
+  private readonly baseScale: number;
   private shakeStart = 0;
   private lastDust = 0;
 
@@ -30,9 +32,11 @@ export class CrumbleTile {
     const ts = TUNING.level.tileSize;
     this.cx = (tile.x + 0.5) * ts;
     this.cy = (tile.y + 0.5) * ts;
+    const art = hasArt(scene, 'crumble');
+    this.baseScale = art ? ART_SCALE * TUNING.art.crumble.displayScale : TRAP_TEXTURE_SCALE;
     this.image = scene.add
-      .image(this.cx, this.cy, TEXTURE_KEYS.crumble)
-      .setScale(TRAP_TEXTURE_SCALE)
+      .image(this.cx, this.cy, art ? artKey('crumble') : TEXTURE_KEYS.crumble)
+      .setScale(this.baseScale)
       .setDepth(C.depth);
   }
 
@@ -72,7 +76,7 @@ export class CrumbleTile {
     this.dust(this.cx, this.cy, C.collapseDust);
     this.scene.tweens.add({
       targets: this.image,
-      scale: TRAP_TEXTURE_SCALE * 0.45,
+      scale: this.baseScale * 0.45,
       alpha: 0,
       angle: Phaser.Math.Between(-40, 40),
       duration: C.collapseMs,

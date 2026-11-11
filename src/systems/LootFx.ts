@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
+import { ART_SCALE, artKey, hasArt } from './ArtAssets';
 import { TREASURE_TEXTURE_SCALE } from './TreasureTextureFactory';
 
 const T = TUNING.treasure;
@@ -29,14 +30,17 @@ export class LootFx {
       .setDepth(T.fxDepth);
 
     const CB = T.coinBurst;
+    // Painted coin if it loaded, else the code-drawn one.
+    const art = hasArt(scene, 'coin');
+    const coinScale = art ? ART_SCALE * TUNING.art.coin.displayScale : S;
     this.coins = scene.add
-      .particles(0, 0, TEXTURE_KEYS.coin, {
+      .particles(0, 0, art ? artKey('coin') : TEXTURE_KEYS.coin, {
         lifespan: CB.lifespanMs,
         speed: { min: CB.speedMin, max: CB.speedMax },
         // Upward fan (270 = straight up), falling back down with gravity.
         angle: { min: 225, max: 315 },
         gravityY: CB.gravityY,
-        scale: { start: S, end: S * 0.6 },
+        scale: { start: coinScale, end: coinScale * 0.6 },
         alpha: { start: 1, end: 0 },
         rotate: { min: -180, max: 180 },
         emitting: false,

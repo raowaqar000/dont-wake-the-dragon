@@ -42,18 +42,25 @@ export interface LevelReport {
   errors: string[];
 }
 
-export function validateLevel(p: ParsedLevel, values?: TreasureValues): LevelReport {
-  const intact = search(p, false);
-  const collapsed = search(p, true);
+export interface ValidateOptions {
+  /** Widest pit run (tiles) a jump clears. 0 = no jumping. */
+  maxJumpTiles?: number;
+}
+
+export function validateLevel(p: ParsedLevel, values?: TreasureValues, opts: ValidateOptions = {}): LevelReport {
+  const maxJump = opts.maxJumpTiles ?? 0;
+  const intact = search(p, false, maxJump);
+  const collapsed = search(p, true, maxJump);
   const at = (x: number, y: number) => y * p.cols + x;
   const chestSet = new Set(p.chests.map((c) => at(c.x, c.y)));
   const dragonSet = new Set(dragonTiles(p).map((t) => at(t.x, t.y)));
+  const gapSet = new Set(p.gaps.map((g) => at(g.x, g.y)));
 
   const unreachable: TilePos[] = [];
   for (let y = 0; y < p.rows; y++) {
     for (let x = 0; x < p.cols; x++) {
       const i = at(x, y);
-      if (!p.wall[y][x] && !chestSet.has(i) && !dragonSet.has(i) && !intact.reached[i]) unreachable.push({ x, y });
+      if (!p.wall[y][x] && !chestSet.has(i) && !dragonSet.has(i) && !gapSet.has(i) && !intact.reached[i]) unreachable.push({ x, y });
     }
   }
 
@@ -81,7 +88,17 @@ export function validateLevel(p: ParsedLevel, values?: TreasureValues): LevelRep
 
   const errors: string[] = [];
   if (!Number.isFinite(intact.result.length)) errors.push('exit is not reachable');
-  if (!Number.isFinite(collapsed.result.length)) errors.push('exit is not reachable once crumbling floors collapse');
+  if (!Number.isFinite(collapsed.result.length)) {
+    errors.push('exit is not reachable once crumbling / trap floors and moving pits drop');
+  }
+  // Runaway exit: the decoy door must be reachable too (you have to get near it).
+  if (p.realExit && !p.exitTiles.some((t) => intact.reached[at(t.x, t.y)])) errors.push("runaway exit: the decoy 'E' is not reachable");
+  // Moving pits: the gap after widening must still be jumpable.
+  for (const m of p.movingPits) {
+    const w = widenedGap(p, m);
+    if (w === 0) errors.push(`moving pit ${m.x},${m.y} is not next to a gap`);
+    else if (w > maxJump) errors.push(`moving pit ${m.x},${m.y} widens the gap to ${w} tiles (max jump ${maxJump})`);
+  }
   if (unreachable.length > 0) {
     errors.push(`${unreachable.length} floor tile(s) unreachable: ${unreachable.map((t) => `${t.x},${t.y}`).join(' ')}`);
   }
@@ -114,14 +131,38 @@ export function walkSeconds(tiles: number, tileSize: number, speedPx: number): n
   return (tiles * tileSize) / speedPx;
 }
 
-function search(p: ParsedLevel, crumblesCollapsed: boolean): { result: PathResult; reached: boolean[] } {
+/**
+ * Widest pit run through a moving pit once it drops: for each direction where a
+ * neighbour is a gap, count the gap tiles in that line plus the moving pit itself.
+ * 0 = no gap next to it.
+ */
+function widenedGap(p: ParsedLevel, m: TilePos): number {
+  const gap = new Set(p.gaps.map((g) => `${g.x},${g.y}`));
+  let best = 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    let n = 0;
+    while (gap.has(`${m.x + dx * (n + 1)},${m.y + dy * (n + 1)}`)) n++;
+    if (n > 0) best = Math.max(best, n + 1);
+  }
+  return best;
+}
+
+/**
+ * Dijkstra over walkable tiles. Pits can't be stood on, but a straight 4-way jump over
+ * 1..maxJump pit tiles onto walkable ground is an edge (cost = tiles travelled).
+ * worstCase: crumbling floors, trap floors and moving pits are already pits.
+ * Target: the real exit ('e') if the level has a runaway exit, else the 'E' tiles.
+ */
+function search(p: ParsedLevel, worstCase: boolean, maxJump: number): { result: PathResult; reached: boolean[] } {
   const { cols, rows } = p;
   const n = cols * rows;
   const idx = (x: number, y: number) => y * cols + x;
 
   const blocked = new Array<boolean>(n).fill(false);
+  const pit = new Array<boolean>(n).fill(false);
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) blocked[idx(x, y)] = p.wall[y][x];
-  if (crumblesCollapsed) for (const c of p.crumbles) blocked[idx(c.x, c.y)] = true;
+  for (const g of p.gaps) pit[idx(g.x, g.y)] = true;
+  if (worstCase) for (const c of [...p.crumbles, ...p.trapFloors, ...p.movingPits]) pit[idx(c.x, c.y)] = true;
   for (const c of p.chests) blocked[idx(c.x, c.y)] = true;
   for (const t of dragonTiles(p)) blocked[idx(t.x, t.y)] = true;
 
@@ -130,8 +171,9 @@ function search(p: ParsedLevel, crumblesCollapsed: boolean): { result: PathResul
     partner.set(idx(pr.a.x, pr.a.y), idx(pr.b.x, pr.b.y));
     partner.set(idx(pr.b.x, pr.b.y), idx(pr.a.x, pr.a.y));
   }
-  const exits = new Set(p.exitTiles.map((t) => idx(t.x, t.y)));
-  const open = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && !blocked[idx(x, y)];
+  const exits = new Set((p.realExit ? p.realExitTiles : p.exitTiles).map((t) => idx(t.x, t.y)));
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows;
+  const open = (x: number, y: number) => inside(x, y) && !blocked[idx(x, y)] && !pit[idx(x, y)];
 
   const dist = new Array<number>(n).fill(Infinity);
   const prev = new Array<number>(n).fill(-1);
@@ -170,6 +212,22 @@ function search(p: ParsedLevel, crumblesCollapsed: boolean): { result: PathResul
           dist[v] = dist[u] + step;
           prev[v] = u;
         }
+      }
+    }
+
+    // Jumps: straight over 1..maxJump pit tiles, landing on walkable ground.
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let k = 1;
+      while (k <= maxJump && inside(ux + dx * k, uy + dy * k) && pit[idx(ux + dx * k, uy + dy * k)]) k++;
+      if (k === 1 || k > maxJump + 1) continue; // no pit right ahead, or too wide
+      const lx = ux + dx * k;
+      const ly = uy + dy * k;
+      if (!open(lx, ly)) continue;
+      const v = idx(lx, ly);
+      reached[v] = true;
+      if (dist[u] + k < dist[v]) {
+        dist[v] = dist[u] + k;
+        prev[v] = u;
       }
     }
   }

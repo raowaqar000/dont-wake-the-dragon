@@ -32,7 +32,7 @@ export const level01: LevelData = {
     '#...............c.......#', // 13
     '#....c....c.............#', // 14
     '#.#2#####################', // 15 entrance (left), portal 2 alcove
-    '#....c....#..c..#...c...#', // 16 north lane: safe but longer
+    '#....c....-..c..-...c...#', // 16 north lane: safe but longer; two 1-tile gaps to hop (optional shortcuts)
     '#.#######...###...#####.#', // 17
     '#.#####################.#', // 18 west squeeze, right shaft
     '#.#######.c.T...#######.#', // 19 sealed vault (portals only)
