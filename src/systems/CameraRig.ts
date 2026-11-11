@@ -24,6 +24,10 @@ export class CameraRig {
   public readonly ui: Phaser.Cameras.Scene2D.Camera;
   private readonly uiObjects = new Set<Phaser.GameObjects.GameObject>();
   private target?: Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform;
+  /** Smoothed look direction (length 0..1): the view and the light lean this way. */
+  public readonly look = new Phaser.Math.Vector2();
+  /** World px the camera center sits above the hero (TUNING.camera.heroScreenY). */
+  private readonly baseOffsetY = ((C.heroScreenY - 0.5) * GAME_HEIGHT) / C.zoom;
 
   /** Create this first in a scene, before any other game object. */
   constructor(scene: Phaser.Scene) {
@@ -42,8 +46,31 @@ export class CameraRig {
 
   follow(target: Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform, worldW: number, worldH: number): void {
     this.target = target;
-    this.world.setBounds(0, 0, worldW, worldH);
+    // Padded bounds: the view may show solid rock past the edges, so the hero isn't pinned to the screen edge.
+    const pad = C.boundsPadding;
+    this.world.setBounds(-pad, -pad, worldW + pad * 2, worldH + pad * 2);
     this.world.startFollow(target, true, C.lerp, C.lerp);
+    this.applyOffset();
+    this.world.centerOn(target.x, target.y - this.baseOffsetY);
+  }
+
+  /**
+   * Per frame: eases the look direction toward the hero's movement direction
+   * (vx, vy = velocity; below minSpeed = no lean) and applies the follow offset.
+   */
+  update(vx: number, vy: number, deltaMs: number, minSpeed: number): void {
+    const speed = Math.hypot(vx, vy);
+    const tx = speed > minSpeed ? vx / speed : 0;
+    const ty = speed > minSpeed ? vy / speed : 0;
+    const k = 1 - Math.pow(1 - C.lookAheadLerp, Math.min(deltaMs, 50) / (1000 / 60));
+    this.look.x += (tx - this.look.x) * k;
+    this.look.y += (ty - this.look.y) * k;
+    this.applyOffset();
+  }
+
+  /** Phaser follow: camera center = target - offset. */
+  private applyOffset(): void {
+    this.world.setFollowOffset(-this.look.x * C.lookAheadPx, this.baseOffsetY - this.look.y * C.lookAheadPx);
   }
 
   /** Fast eased pan to the follow target (after it jumped), then resumes following. */
@@ -56,7 +83,8 @@ export class CameraRig {
       cam.startFollow(target, true, C.lerp, C.lerp);
       onDone?.();
     });
-    cam.pan(target.x, target.y, C.portalPanMs, C.portalPanEase, true);
+    // Pan to where following will put the camera (hero offset + look-ahead), so there's no jump after.
+    cam.pan(target.x - cam.followOffset.x, target.y - cam.followOffset.y, C.portalPanMs, C.portalPanEase, true);
   }
 
   addUi(objects: Phaser.GameObjects.GameObject[]): void {

@@ -17,7 +17,12 @@ const WORLD_LIGHT_RADIUS = LT.lightRadius / TUNING.camera.zoom;
 export class Lighting {
   private readonly image: Phaser.GameObjects.Image;
 
-  constructor(scene: Phaser.Scene, private readonly target: Phaser.GameObjects.Components.Transform) {
+  constructor(
+    scene: Phaser.Scene,
+    private readonly target: Phaser.GameObjects.Components.Transform,
+    /** Smoothed look direction (CameraRig.look); the light leans toward it. */
+    private readonly look?: Phaser.Math.Vector2,
+  ) {
     Lighting.ensureTexture(scene);
     this.image = scene.add
       .image(target.x, target.y, TEXTURE_KEYS.darkness)
@@ -31,8 +36,16 @@ export class Lighting {
     });
   }
 
+  /** Light center = hero + lean toward the look direction; leans up a little when standing still. */
   private follow(): void {
-    this.image.setPosition(this.target.x, this.target.y);
+    let dx = 0;
+    let dy = 0;
+    if (this.look) {
+      const moving = Math.min(1, this.look.length());
+      dx = this.look.x * LT.aheadPx;
+      dy = this.look.y * LT.aheadPx - (1 - moving) * LT.idleUpPx;
+    }
+    this.image.setPosition(this.target.x + dx, this.target.y + dy);
   }
 
   private static ensureTexture(scene: Phaser.Scene): void {
@@ -44,7 +57,9 @@ export class Lighting {
     const c = TEX_SIZE / 2;
     const scale = TEX_SIZE / COVER_SIZE;
     const outer = WORLD_LIGHT_RADIUS * scale;
-    const inner = outer * (1 - LT.softness);
+    // Fully clear core around the hero (brightCoreRadius), never past the outer edge.
+    const core = (LT.brightCoreRadius / TUNING.camera.zoom) * scale;
+    const inner = Math.min(outer * 0.95, Math.max(outer * (1 - LT.softness), core));
     const rgb = Phaser.Display.Color.IntegerToColor(LT.color);
     const rgba = (a: number) => `rgba(${rgb.red},${rgb.green},${rgb.blue},${a})`;
 

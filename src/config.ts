@@ -38,6 +38,7 @@ export const TEXTURE_KEYS = {
   rockShadow: 'rock_shadow',
   rubble: 'rubble',
   jumpIcon: 'jump_icon',
+  pitOverlay: 'pit_overlay',
 } as const;
 
 export const COLORS = {
@@ -62,8 +63,8 @@ export const TUNING = {
     frameSize: 48,
     /** Textures are drawn at this multiple and scaled down, so they stay crisp. */
     textureResolution: 2,
-    /** On-screen scale of the character (0.88 -> ~38px tall). */
-    displayScale: 0.88,
+    /** On-screen scale of the character (1.14 -> ~49px tall). */
+    displayScale: 1.14,
     /** Shift the visual relative to the physics body center (px). 0 = centered. */
     offsetY: 0,
     outlineWidth: 2.2,
@@ -165,14 +166,14 @@ export const TUNING = {
 
   level: {
     tileSize: 48,
-    floorColor: 0x3a3540,
+    floorColor: 0x6a5a48,
     /** Random per-tile brightness change (+/- fraction). */
     floorShadeVariation: 0.08,
-    wallColor: 0x1b1720,
+    wallColor: 0x2a1f17,
     wallShadeVariation: 0.06,
-    /** Lighter top edge of a wall where floor is above it. */
-    wallEdgeColor: 0x5a5262,
-    wallEdgeHeight: 6,
+    /** Lighter lit edge on a wall tile wherever it borders floor (raised look). */
+    wallEdgeColor: 0xb08a62,
+    wallEdgeHeight: 9,
     depth: 0,
   },
 
@@ -181,6 +182,14 @@ export const TUNING = {
     lerp: 0.1,
     /** World camera zoom (< 1 shows more cave). HUD uses its own unzoomed camera. */
     zoom: 0.85,
+    /** Where the hero sits on screen vertically (0 = top, 0.5 = center, 1 = bottom). Below center shows more ahead. */
+    heroScreenY: 0.58,
+    /** The view leans this far (world px) toward the direction of movement. */
+    lookAheadPx: 110,
+    /** Look-ahead smoothing per frame at 60 fps (0..1). Lower = smoother. */
+    lookAheadLerp: 0.04,
+    /** The camera may scroll this far (world px) past the level edges, so the hero isn't stuck at the screen edge. */
+    boundsPadding: 240,
     /** Fast pan to the destination after a teleport. */
     portalPanMs: 380,
     portalPanEase: 'Cubic.easeInOut',
@@ -308,7 +317,7 @@ export const TUNING = {
     airScale: 0.12,
     squash: 0.18,
     squashMs: 90,
-    shadow: { width: 28, height: 11, alpha: 0.4, minScale: 0.55 },
+    shadow: { width: 36, height: 14, alpha: 0.4, minScale: 0.55 },
 
     button: {
       /** Center (logical px, UI camera) and radius. Bottom right, easy thumb reach. */
@@ -388,7 +397,7 @@ export const TUNING = {
       openMs: 1500,
       /** Crushed when the hero is in the corridor and the opening is narrower than this (px, body is 26). */
       crushGapPx: 24,
-      tint: 0x7a6a88,
+      tint: 0x5e4a3a,
       seamColor: 0x0b0a0d,
       seamAlpha: 0.55,
     },
@@ -411,10 +420,11 @@ export const TUNING = {
     /** Fake wall 'w': looks like wall, walkable. Fades while the player is inside. */
     fakeWall: {
       /** Tell: a slightly different tint than TUNING.art.level.wallTint, and a hairline glint. */
-      tint: 0x9282a2,
+      tint: 0x6a5442,
       insideAlpha: 0.35,
       fadePerSec: 6,
-      glintAlpha: 0.3,
+      /** The glint stays clearly visible so fake walls remain discoverable. */
+      glintAlpha: 0.55,
     },
     /** Moving pit 'M': drops when the player jumps toward its gap (once per level). */
     movingPit: {
@@ -671,11 +681,17 @@ export const TUNING = {
     enabled: true,
     /** On-screen distance from the player where the darkness reaches full strength (px).
      *  Divided by camera zoom, so zooming out shows more cave in the same-size light. */
-    lightRadius: 300,
+    lightRadius: 440,
     /** Fraction of lightRadius used for the fade (rest is fully lit). */
-    softness: 0.6,
+    softness: 0.55,
+    /** Fully clear circle around the hero (on-screen px); the fade starts outside it. */
+    brightCoreRadius: 150,
     /** Max darkness alpha far from the player (0 = none, 1 = pitch black). */
-    darkness: 0.85,
+    darkness: 0.6,
+    /** The light center leans this far (world px) toward the direction of movement... */
+    aheadPx: 60,
+    /** ...and this far up when standing still (levels mostly go north). */
+    idleUpPx: 30,
     color: 0x05040a,
     depth: 100,
   },
@@ -912,8 +928,8 @@ export const TUNING = {
 
     /** Hero: still images per direction, animated in code. */
     hero: {
-      /** 96 px texture -> 48 world px; 0.86 -> ~41 px tall. */
-      displayScale: 0.86,
+      /** 96 px texture -> 48 world px; 1.12 -> ~54 px tall (physics body unchanged). */
+      displayScale: 1.12,
       /** Feet position below the physics body center (world px, before displayScale). */
       feetOffsetY: 19,
       /** How fast the pose blends to the current motion (per second). Higher = snappier. */
@@ -978,7 +994,16 @@ export const TUNING = {
       riseSlidePx: 3,
     },
     crumble: { displayScale: 1 },
-    pit: { displayScale: 1 },
+    pit: {
+      displayScale: 1,
+      /** Hole overlay on every pit: darker center, shadow under the near (top) edge, light rim on the far (bottom) edge. */
+      overlayAlpha: 0.85,
+      centerColor: 0x000000,
+      shadowAlpha: 0.6,
+      rimColor: 0xc8a878,
+      rimAlpha: 0.55,
+      rimPx: 4,
+    },
     portal: {
       displayScale: 0.9,
       /** Pair-colored swirl inside the stone ring (size relative to the portal, flattened to match its oval). */
@@ -998,22 +1023,34 @@ export const TUNING = {
       floorScale: 1,
       wallScale: 1,
       /** Multiply tint: walls a bit darker so they read apart from the floor. */
-      floorTint: 0xffffff,
-      wallTint: 0x8a7a98,
-      /** Lighter top edge of a wall below open floor, and the floor shadow under a wall. */
+      floorTint: 0xfff0d6,
+      wallTint: 0x5e4a3a,
+      /** Raised walls: a lit edge on the wall face along floor (thicker on the face toward the viewer). */
       wallEdge: true,
-      wallEdgeAlpha: 0.4,
+      wallEdgeAlpha: 0.8,
+      /** Lit edge on the wall's side and top faces (thinner, px). */
+      wallSideEdgePx: 4,
+      wallSideEdgeAlpha: 0.45,
+      /** Drop shadow on the floor along every wall edge: the wall above casts the darkest one. */
       floorShadow: true,
-      floorShadowAlpha: 0.35,
+      floorShadowPx: 10,
+      floorShadowAlpha: 0.5,
+      floorShadowSideAlpha: 0.35,
       /** Dark line where wall meets floor (px, 0 = off). */
-      outlineWidth: 2,
+      outlineWidth: 3,
       outlineColor: 0x0b0a0d,
-      outlineAlpha: 0.6,
+      outlineAlpha: 0.85,
+      /** Wall tiles at least voidDistance tiles from any floor get this dark fill (solid rock). 0 alpha = off. */
+      voidDistance: 2,
+      voidColor: 0x0a0806,
+      voidAlpha: 0.55,
+      /** Rock drawn around the level (camera boundsPadding shows it), in tiles. */
+      outsideTiles: 6,
     },
   },
 
   debug: {
-    enabled: true,
+    enabled: false,
     /** Level to start (temporary, until the level select exists): 'level01' | 'level02'. */
     startLevel: 'level02' as string,
     /** Draw Arcade physics bodies (walls, player, exit). */
@@ -1021,7 +1058,7 @@ export const TUNING = {
     /** Traps and other fails only flash instead of ending the run (for testing layouts). */
     godMode: false,
     /** Draw each dragon's hearing reach (run step outer, sneak step inner) and its meter value. */
-    showDragons: true,
+    showDragons: false,
     fontSize: 22,
     color: '#9fe870',
     /** How often the debug text refreshes (ms). */

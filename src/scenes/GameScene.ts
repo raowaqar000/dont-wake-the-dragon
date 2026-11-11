@@ -37,6 +37,7 @@ export class GameScene extends Phaser.Scene {
   private dragons!: DragonSystem;
   private hud!: Hud;
   private jump!: JumpSystem;
+  private rig!: CameraRig;
   private jumpButton!: JumpButton;
   private troll!: TrollTrapSystem;
   private debug?: DebugOverlay;
@@ -68,6 +69,7 @@ export class GameScene extends Phaser.Scene {
 
     // First, so every later object is routed to the right camera.
     const rig = new CameraRig(this);
+    this.rig = rig;
 
     const built = LevelLoader.build(this, this.level);
     this.physics.world.setBounds(0, 0, built.widthPx, built.heightPx);
@@ -82,7 +84,7 @@ export class GameScene extends Phaser.Scene {
     rig.follow(this.player, built.widthPx, built.heightPx);
 
     if (TUNING.lighting.enabled) {
-      new Lighting(this, this.player);
+      new Lighting(this, this.player, rig.look);
     }
 
     // Jump button first: it's interactive, so the joystick ignores touches that start on it.
@@ -200,6 +202,9 @@ export class GameScene extends Phaser.Scene {
     this.portals.update();
     this.traps.update();
     this.troll.update(delta);
+    // Camera look-ahead toward the movement direction (frozen once the run is over).
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    if (!this.fail.isOver) this.rig.update(body.velocity.x, body.velocity.y, delta, TUNING.playerVisual.animMinSpeed);
     this.loot.update(delta);
     this.dragons.update(delta);
     if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.time.now - this.startTime);

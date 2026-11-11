@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { TUNING } from '../../config';
+import { TEXTURE_KEYS, TUNING } from '../../config';
+import { TROLL_TEXTURE_SCALE } from '../../systems/TrollTextureFactory';
 import { ART_SCALE, artKey, hasArt } from '../../systems/ArtAssets';
 import type { TilePos } from '../../systems/LevelParser';
 
@@ -61,6 +62,13 @@ export class TrapFloor {
     pit.setScale(pit.scaleX * 0.3).setAlpha(0.4);
     const full = pit instanceof Phaser.GameObjects.Image ? ART_SCALE * TUNING.art.pit.displayScale : 1;
     this.scene.tweens.add({ targets: pit, scale: full, alpha: 1, duration: TF.collapseMs, ease: 'Back.easeOut' });
+    // Same hole overlay as the baked pits (dark center, light far rim).
+    const hole = this.scene.add
+      .image(this.cx, this.cy, TEXTURE_KEYS.pitOverlay)
+      .setScale(TROLL_TEXTURE_SCALE * 0.3)
+      .setAlpha(0)
+      .setDepth(TUNING.troll.depth + 0.01);
+    this.scene.tweens.add({ targets: hole, scale: TROLL_TEXTURE_SCALE, alpha: 1, duration: TF.collapseMs, ease: 'Back.easeOut' });
     this.dust(this.cx, this.cy, TF.dust);
     this.onDrop(this);
   }

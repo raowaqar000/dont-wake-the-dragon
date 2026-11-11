@@ -22,7 +22,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - Treasure: `Pickup` (coin/gem; idle animation driven by LootSystem) and `Chest` (solid, glow, progress ring, lid open).
   - `Dragon`: one sleeping dragon (sleep meter, 3 stages, breathing, Zzz, tail twitch, eye glow, meter bar, wake pose). Implements `NoiseListener`. All parts are placed through `toWorld()` (art frame = head facing right; the asset script mirrors the left-facing art), so an upright dragon only needs a base rotation. Part positions come from a `DragonRig` (painted: from the art anchors; head image sleep/stir/roar by stage; fallback: `TUNING.dragon`).
 - `src/systems/`:
-  - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`).
+  - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`; hero offset, smoothed look-ahead via `update()`, padded bounds).
   - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem` (spikes, crumble; collapsed crumbles become pits); `FailSystem` (`fail` = card, `quickFail` = trap death with auto-restart, `begin/finish` = dragon sequence; `onDeath` hook counts deaths).
   - Jump and troll traps: `PitMap` (which tiles are open pits; no physics bodies); `JumpSystem` (EventEmitter, `JUMP_EVENTS.takeoff/land/fell`; buffer, coyote time, cooldown, falls when the body center is over a pit); `TrollTrapSystem` (EventEmitter, `TROLL_EVENTS.triggered`; tile-based triggers checked only on tile change, trap links, tells, fake walls, rubble).
   - Noise and dragons: `NoiseSystem` (`emitNoise(x, y, loudness, source)`, distance falloff, grid-DDA wall dampening, pooled fading rings); `DragonSystem` (owns the dragons, shared smoke/fire emitters, stage haptics, the wake-up sequence, debug reach); `HapticsService` (Capacitor Haptics, `navigator.vibrate` fallback, never throws).
@@ -139,6 +139,13 @@ The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles
    - trap deaths auto-restart after 0.8 s (dragon wake keeps its full sequence and card); lifetime deaths per level and session attempts in the HUD, deaths on the ESCAPED and CAUGHT cards;
    - level02 "The Trickster's Tunnel"; level01 got two optional 1-tile hops; `TUNING.debug.startLevel` picks the level.
    - Code-drawn placeholders still needing painted art: ceiling rock, rock shadow, rubble, jump button icon, closing-wall slab face (uses the wall tile now), optional hero jump pose.
+9. Readability pass:
+   - darker brown walls and a lighter warm floor; baked raised-wall look in `LevelLoader.drawEdges` (lit edges, drop shadows on all sides, outline, dark "void" fill deep in thick rock); solid rock drawn around the level (`drawOutside`);
+   - pits get a hole overlay (`TEXTURE_KEYS.pitOverlay`: dark center, shadow under the near edge, light far rim), also on trap floors and moving pits;
+   - lighting: bigger radius, darkness 0.6, a fully clear core (`brightCoreRadius`), light leans toward movement (`aheadPx`) or up when idle (`idleUpPx`);
+   - camera: hero at `heroScreenY` 0.58, smoothed look-ahead (`CameraRig.update`, `CameraRig.look`), `boundsPadding` lets the view go past the level edges;
+   - hero shown ~1.3x bigger (physics unchanged); debug text and dragon debug off by default;
+   - fake walls match the new wall color and edges but keep a visible glint tell.
 
 ## Next planned features
 

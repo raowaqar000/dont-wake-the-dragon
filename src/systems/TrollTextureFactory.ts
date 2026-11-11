@@ -14,6 +14,48 @@ export function createTrollTextures(scene: Phaser.Scene): void {
   createShadow(scene);
   createRubble(scene);
   createJumpIcon(scene);
+  createPitOverlay(scene);
+}
+
+/**
+ * Laid over every pit so it reads as a hole from top-down: dark radial center, a shadow
+ * under the near (top) edge, and a light rim on the far (bottom) edge, which faces the viewer.
+ */
+function createPitOverlay(scene: Phaser.Scene): void {
+  if (scene.textures.exists(TEXTURE_KEYS.pitOverlay)) return;
+  const P = TUNING.art.pit;
+  const s = TUNING.level.tileSize * RES;
+  const tex = scene.textures.createCanvas(TEXTURE_KEYS.pitOverlay, s, s);
+  if (!tex) return;
+  const ctx = tex.getContext();
+  const c = Phaser.Display.Color.IntegerToColor(P.centerColor);
+  const rgba = (col: Phaser.Display.Color, a: number) => `rgba(${col.red},${col.green},${col.blue},${a})`;
+
+  // Dark center, fading toward the edges.
+  const grad = ctx.createRadialGradient(s / 2, s * 0.45, 0, s / 2, s * 0.45, s * 0.62);
+  grad.addColorStop(0, rgba(c, P.overlayAlpha));
+  grad.addColorStop(0.55, rgba(c, P.overlayAlpha * 0.7));
+  grad.addColorStop(1, rgba(c, P.overlayAlpha * 0.25));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, s, s);
+
+  // Shadow under the near (top) edge.
+  const sh = ctx.createLinearGradient(0, 0, 0, s * 0.35);
+  sh.addColorStop(0, rgba(c, P.shadowAlpha));
+  sh.addColorStop(1, rgba(c, 0));
+  ctx.fillStyle = sh;
+  ctx.fillRect(0, 0, s, s * 0.35);
+
+  // Light rim on the far (bottom) edge.
+  const rim = Phaser.Display.Color.IntegerToColor(P.rimColor);
+  const rh = P.rimPx * RES;
+  const rg = ctx.createLinearGradient(0, s - rh * 2.5, 0, s);
+  rg.addColorStop(0, rgba(rim, 0));
+  rg.addColorStop(0.6, rgba(rim, P.rimAlpha));
+  rg.addColorStop(1, rgba(rim, P.rimAlpha * 0.6));
+  ctx.fillStyle = rg;
+  ctx.fillRect(s * 0.06, s - rh * 2.5, s * 0.88, rh * 2.5);
+  tex.refresh();
 }
 
 const OUTLINE = 0x0b0a0d;

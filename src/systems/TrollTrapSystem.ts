@@ -371,10 +371,25 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
             .setTint(TR.fakeWall.tint)
             .setDepth(depth)
         : this.scene.add.rectangle(x, y, ts, ts, TUNING.level.wallColor).setOrigin(0, 0).setDepth(depth);
-      // Tell: a hairline glint.
+      // Same raised-wall edges as real walls (lit lip / sides where it touches floor).
       const glint = this.scene.add.graphics().setDepth(depth + 0.1);
-      glint.lineStyle(1, 0xffffff, TR.fakeWall.glintAlpha);
-      glint.lineBetween(x + ts * 0.2, y + ts * 0.3, x + ts * 0.42, y + ts * 0.24);
+      const A = TUNING.art.level;
+      const L = TUNING.level;
+      const floor = (tx: number, ty: number) =>
+        this.level.wall[ty]?.[tx] === false && !this.level.fakeWalls.some((f) => f.x === tx && f.y === ty);
+      if (A.wallEdge) {
+        if (floor(t.x, t.y - 1)) {
+          glint.fillStyle(L.wallEdgeColor, A.wallEdgeAlpha);
+          glint.fillRect(x, y, ts, L.wallEdgeHeight);
+        }
+        glint.fillStyle(L.wallEdgeColor, A.wallSideEdgeAlpha);
+        if (floor(t.x - 1, t.y)) glint.fillRect(x, y, A.wallSideEdgePx, ts);
+        if (floor(t.x + 1, t.y)) glint.fillRect(x + ts - A.wallSideEdgePx, y, A.wallSideEdgePx, ts);
+        if (floor(t.x, t.y + 1)) glint.fillRect(x, y + ts - A.wallSideEdgePx, ts, A.wallSideEdgePx);
+      }
+      // Tell: a small glint, kept visible on the darker rock.
+      glint.lineStyle(1.5, 0xffffff, TR.fakeWall.glintAlpha);
+      glint.lineBetween(x + ts * 0.2, y + ts * 0.36, x + ts * 0.44, y + ts * 0.3);
       const rect = new Phaser.Geom.Rectangle(x - 14, y - 14, ts + 28, ts + 28);
       this.fakeWalls.push({ img, rect }, { img: glint, rect });
     }

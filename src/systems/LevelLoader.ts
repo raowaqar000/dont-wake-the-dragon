@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { TUNING } from '../config';
+import { TEXTURE_KEYS, TUNING } from '../config';
+import { TROLL_TEXTURE_SCALE } from './TrollTextureFactory';
 import type { LevelData } from '../levels/types';
 import { parseLevel, type ParsedLevel } from './LevelParser';
 import { validateLevel, walkSeconds } from './LevelValidator';
@@ -90,8 +91,10 @@ export class LevelLoader {
     const rt = scene.add.renderTexture(0, 0, w, h).setOrigin(0, 0).setDepth(L.depth);
     const g = scene.make.graphics({ x: 0, y: 0 }, false);
 
-    if (hasArt(scene, 'floor_tile', 'wall_tile')) LevelLoader.drawArtTiles(scene, rt, g, p, w, h);
+    if (hasArt(scene, 'floor_tile', 'wall_tile')) LevelLoader.drawArtTiles(scene, rt, p, w, h);
     else LevelLoader.drawFlatTiles(g, seed, p);
+    LevelLoader.drawEdges(g, p);
+    LevelLoader.drawOutside(scene, w, h);
 
     // Spike plates with holes (the spikes themselves are animated sprites). Painted spikes bring their own plate.
     if (!SpikeTrap.usesArt(scene)) {
@@ -131,13 +134,17 @@ export class LevelLoader {
       const scale = ART_SCALE * TUNING.art.pit.displayScale;
       for (const t of [...p.crumbles, ...p.gaps]) rt.stamp(artKey('pit'), undefined, (t.x + 0.5) * ts, (t.y + 0.5) * ts, { scale });
     }
+    // Make every pit read as a hole: dark center, shadow under the near edge, light far rim.
+    const pitScale = TROLL_TEXTURE_SCALE;
+    for (const t of [...p.crumbles, ...p.gaps]) {
+      rt.stamp(TEXTURE_KEYS.pitOverlay, undefined, (t.x + 0.5) * ts, (t.y + 0.5) * ts, { scale: pitScale });
+    }
   }
 
-  /** Painted floor + walls (tiled textures), then the wall top edge, floor shadow and outline into `g`. */
+  /** Painted floor + walls (tiled textures) straight into the level image. Edges come from drawEdges. */
   private static drawArtTiles(
     scene: Phaser.Scene,
     rt: Phaser.GameObjects.RenderTexture,
-    g: Phaser.GameObjects.Graphics,
     p: ParsedLevel,
     w: number,
     h: number,
@@ -165,27 +172,62 @@ export class LevelLoader {
     holes.destroy();
     rt.draw(walls);
     walls.destroy();
+  }
 
-    const isWall = (x: number, y: number) => y < 0 || x < 0 || y >= p.rows || x >= p.cols || p.wall[y][x];
+  /**
+   * Raised-wall look, shared by painted and flat tiles (all baked, no per-frame cost):
+   *  - void: wall tiles far from any floor get a dark fill, so thick rock reads as solid;
+   *  - lit edge on every wall side that touches floor (thick where floor is above it);
+   *  - drop shadow on the floor along every wall edge (darkest under a wall above);
+   *  - thin dark outline where wall meets floor.
+   */
+  private static drawEdges(g: Phaser.GameObjects.Graphics, p: ParsedLevel): void {
+    const ts = L.tileSize;
+    const A = TUNING.art.level;
+    // Fake walls ('w') count as wall here, so nothing around them gives them away.
+    const fake = new Set(p.fakeWalls.map((t) => t.y * p.cols + t.x));
+    const isWall = (x: number, y: number) =>
+      y < 0 || x < 0 || y >= p.rows || x >= p.cols || p.wall[y][x] || fake.has(y * p.cols + x);
+    const isFloor = (x: number, y: number) => !isWall(x, y);
+    const nearFloor = (x: number, y: number, d: number) => {
+      for (let yy = y - d; yy <= y + d; yy++) for (let xx = x - d; xx <= x + d; xx++) if (isFloor(xx, yy)) return true;
+      return false;
+    };
     const o = A.outlineWidth;
+    const sp = A.floorShadowPx;
+    const side = A.wallSideEdgePx;
+
     for (let y = 0; y < p.rows; y++) {
       for (let x = 0; x < p.cols; x++) {
         const px = x * ts;
         const py = y * ts;
+        if (fake.has(y * p.cols + x)) continue; // drawn (with its own lit edges) by TrollTrapSystem
         if (p.wall[y][x]) {
-          // Lighter top edge where the wall meets open floor above it.
-          if (A.wallEdge && y > 0 && !p.wall[y - 1][x]) {
+          if (A.voidAlpha > 0 && !nearFloor(x, y, A.voidDistance - 1)) {
+            g.fillStyle(A.voidColor, A.voidAlpha);
+            g.fillRect(px, py, ts, ts);
+            continue;
+          }
+          if (!A.wallEdge) continue;
+          // Lit lip facing the floor above (thick), thinner lit edges on the other sides.
+          if (isFloor(x, y - 1)) {
             g.fillStyle(L.wallEdgeColor, A.wallEdgeAlpha);
             g.fillRect(px, py, ts, L.wallEdgeHeight);
           }
+          g.fillStyle(L.wallEdgeColor, A.wallSideEdgeAlpha);
+          if (isFloor(x - 1, y)) g.fillRect(px, py, side, ts);
+          if (isFloor(x + 1, y)) g.fillRect(px + ts - side, py, side, ts);
+          if (isFloor(x, y + 1)) g.fillRect(px, py + ts - side, ts, side);
           continue;
         }
-        // Soft shadow cast by a wall directly above.
-        if (A.floorShadow && isWall(x, y - 1)) {
+        if (A.floorShadow) {
           g.fillStyle(0x000000, A.floorShadowAlpha);
-          g.fillRect(px, py, ts, L.wallEdgeHeight);
+          if (isWall(x, y - 1)) g.fillRect(px, py, ts, sp);
+          g.fillStyle(0x000000, A.floorShadowSideAlpha);
+          if (isWall(x - 1, y)) g.fillRect(px, py, sp, ts);
+          if (isWall(x + 1, y)) g.fillRect(px + ts - sp, py, sp, ts);
+          if (isWall(x, y + 1)) g.fillRect(px, py + ts - sp * 0.5, ts, sp * 0.5);
         }
-        // Dark line where floor meets wall.
         if (o > 0) {
           g.fillStyle(A.outlineColor, A.outlineAlpha);
           if (isWall(x, y - 1)) g.fillRect(px, py, ts, o);
@@ -194,6 +236,34 @@ export class LevelLoader {
           if (isWall(x + 1, y)) g.fillRect(px + ts - o, py, o, ts);
         }
       }
+    }
+  }
+
+  /**
+   * Solid rock around the level (the camera may scroll past the edges by boundsPadding):
+   * the same wall texture (pattern-aligned with the level) plus the void fill, under the level image.
+   */
+  private static drawOutside(scene: Phaser.Scene, w: number, h: number): void {
+    const A = TUNING.art.level;
+    const ts = L.tileSize;
+    const art = hasArt(scene, 'wall_tile');
+    const tileScale = ART_SCALE * A.wallScale;
+    // Pad by whole texture periods so the rock pattern lines up with the level's walls.
+    const period = art ? scene.textures.get(artKey('wall_tile')).getSourceImage().width * tileScale : ts;
+    const pad = Math.ceil((A.outsideTiles * ts) / period) * period;
+    const depth = L.depth - 1;
+    if (art) {
+      scene.add
+        .tileSprite(-pad, -pad, w + pad * 2, h + pad * 2, artKey('wall_tile'))
+        .setOrigin(0, 0)
+        .setTileScale(tileScale)
+        .setTint(A.wallTint)
+        .setDepth(depth);
+    } else {
+      scene.add.rectangle(-pad, -pad, w + pad * 2, h + pad * 2, L.wallColor).setOrigin(0, 0).setDepth(depth);
+    }
+    if (A.voidAlpha > 0) {
+      scene.add.rectangle(-pad, -pad, w + pad * 2, h + pad * 2, A.voidColor, A.voidAlpha).setOrigin(0, 0).setDepth(depth);
     }
   }
 
@@ -216,11 +286,6 @@ export class LevelLoader {
           for (let i = 0; i < 2; i++) {
             g.fillRect(px + rng.between(4, ts - 8), py + rng.between(4, ts - 8), rng.between(2, 4), rng.between(2, 3));
           }
-          // Soft shadow cast by a wall directly above.
-          if (y > 0 && p.wall[y - 1][x]) {
-            g.fillStyle(0x000000, 0.25);
-            g.fillRect(px, py, ts, L.wallEdgeHeight);
-          }
           continue;
         }
 
@@ -230,11 +295,6 @@ export class LevelLoader {
         g.fillStyle(shade(rock, 0.35), 1);
         for (let i = 0; i < 3; i++) {
           g.fillRect(px + rng.between(2, ts - 8), py + rng.between(2, ts - 8), rng.between(3, 6), rng.between(2, 4));
-        }
-        // Lighter top edge where the wall meets open floor above it.
-        if (y > 0 && !p.wall[y - 1][x]) {
-          g.fillStyle(L.wallEdgeColor, 1);
-          g.fillRect(px, py, ts, L.wallEdgeHeight);
         }
       }
     }
