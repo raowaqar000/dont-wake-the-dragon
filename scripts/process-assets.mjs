@@ -130,8 +130,23 @@ const CONFIG = {
     { file: 'wall.png', name: 'wall_tile', size: 384 },
   ],
 
-  /** Single images: background removed, trimmed, resized to this width. */
-  singles: [{ file: 'logo.png', name: 'logo', width: 600 }],
+  /**
+   * Single images: background removed (skipped if the file already has transparency), trimmed,
+   * then resized by ONE of: width, height, or box (fit inside a square box, centred).
+   * pad = empty raw px kept around the trimmed item (default 4; 0 = flush edges, for tiling).
+   */
+  singles: [
+    { file: 'logo.png', name: 'logo', width: 600 },
+    /** Falling ceiling rock and the rubble it leaves: about one tile (2x of 48 world px). */
+    { file: 'ceiling_rock.png', name: 'ceiling_rock', box: 96 },
+    { file: 'rubble.png', name: 'rubble', box: 96 },
+    /** Closing-wall panel: repeated down each slab, so trimmed flush. 144 = 2x of a 72 px slab. */
+    { file: 'closing_wall.png', name: 'closing_wall', width: 144, pad: 0 },
+    /** Whole painted jump button: 2x of the 164 px button diameter. */
+    { file: 'jump_button.png', name: 'jump_button', width: 328 },
+    /** Hero in the air: same height as the other hero images. */
+    { file: 'hero_jump.png', name: 'hero_jump', height: 96 },
+  ],
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -531,8 +546,12 @@ async function processTiles() {
 async function processSingles() {
   for (const s of CONFIG.singles) {
     const img = removeWhite(await load(s.file));
-    const box = padBox(img, bbox(img), 4);
-    await save(s.name, await render(img, box, s.width / box.w));
+    const box = padBox(img, bbox(img), s.pad ?? 4);
+    let r;
+    if (s.box) r = await renderContain(img, box, s.box);
+    else if (s.height) r = await render(img, box, s.height / box.h);
+    else r = await render(img, box, s.width / box.w);
+    await save(s.name, r);
   }
 }
 

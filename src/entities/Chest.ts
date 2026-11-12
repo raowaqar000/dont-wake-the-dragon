@@ -105,6 +105,15 @@ export class Chest {
     g.strokePath();
   }
 
+  /** Opened before the last checkpoint: shown open at once, no effects. */
+  openNow(): void {
+    if (this.state === 'open') return;
+    this.state = 'open';
+    this.image.setTexture(this.art ? artKey('chest_open') : TEXTURE_KEYS.chestOpen);
+    this.glowTween.stop();
+    this.glow.destroy();
+  }
+
   /** Lid opens with a squash; glow and ring go away. */
   open(): void {
     if (this.state === 'open') return;

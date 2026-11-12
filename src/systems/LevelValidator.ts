@@ -38,6 +38,8 @@ export interface LevelReport {
   /** Treasure that can never be collected. */
   unreachableTreasure: TilePos[];
   treasure: TreasureTotals;
+  /** Shortest route (worst case) from each checkpoint, in ParsedLevel.checkpoints order. */
+  fromCheckpoints: PathResult[];
   /** Human-readable problems; empty = level is fine. */
   errors: string[];
 }
@@ -105,7 +107,16 @@ export function validateLevel(p: ParsedLevel, values?: TreasureValues, opts: Val
   if (unreachableTreasure.length > 0) {
     errors.push(`${unreachableTreasure.length} treasure(s) unreachable: ${unreachableTreasure.map((t) => `${t.x},${t.y}`).join(' ')}`);
   }
+  // Checkpoints: reachable, and the exit is still reachable from them (worst case: every floor trap dropped).
+  const fromCheckpoints: PathResult[] = [];
+  for (const c of p.checkpoints) {
+    if (!intact.reached[at(c.x, c.y)]) errors.push(`checkpoint ${c.x},${c.y} is not reachable`);
+    const r = search(p, true, maxJump, c).result;
+    fromCheckpoints.push(r);
+    if (!Number.isFinite(r.length)) errors.push(`exit is not reachable from checkpoint ${c.x},${c.y}`);
+  }
   return {
+    fromCheckpoints,
     shortest: intact.result,
     shortestCollapsed: collapsed.result,
     unreachable,
@@ -153,7 +164,7 @@ function widenedGap(p: ParsedLevel, m: TilePos): number {
  * worstCase: crumbling floors, trap floors and moving pits are already pits.
  * Target: the real exit ('e') if the level has a runaway exit, else the 'E' tiles.
  */
-function search(p: ParsedLevel, worstCase: boolean, maxJump: number): { result: PathResult; reached: boolean[] } {
+function search(p: ParsedLevel, worstCase: boolean, maxJump: number, from: TilePos = p.start): { result: PathResult; reached: boolean[] } {
   const { cols, rows } = p;
   const n = cols * rows;
   const idx = (x: number, y: number) => y * cols + x;
@@ -179,7 +190,7 @@ function search(p: ParsedLevel, worstCase: boolean, maxJump: number): { result: 
   const prev = new Array<number>(n).fill(-1);
   const done = new Array<boolean>(n).fill(false);
   const reached = new Array<boolean>(n).fill(false);
-  const start = idx(p.start.x, p.start.y);
+  const start = idx(from.x, from.y);
   dist[start] = 0;
   reached[start] = true;
 

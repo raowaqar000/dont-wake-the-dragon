@@ -113,6 +113,14 @@ export class Hud {
   }
 
   private onLoot(e: LootChange): void {
+    if (e.kind === 'restore') {
+      // Respawn at a checkpoint: show the kept loot at once.
+      this.shownLoot = e.total;
+      this.lootText.setText(String(e.total));
+      this.gemText.setText(`${e.gems}/${e.gemsTotal}`);
+      this.chestText.setText(`${e.chests}/${e.chestsTotal}`);
+      return;
+    }
     this.countUpTo(e.total);
     if (e.kind === 'gem') {
       this.gemText.setText(`${e.gems}/${e.gemsTotal}`);

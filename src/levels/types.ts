@@ -25,6 +25,10 @@
  *            wakes up when its sleep meter is full. Facing and hearing per dragon:
  *            LevelData.dragonOverrides. Every tile must stay reachable around it.
  *
+ *   'F'      checkpoint (floor tile with a small glowing flag). Touching it saves the spot:
+ *            trap deaths and "Try again" respawn there, loot taken before it is kept.
+ *            Each one must be reachable, and the exit must be reachable from it (checked at load).
+ *
  *   '-'      gap: an open pit from the start. Jump over it (JUMP button); walking in
  *            (body center over it) = fall. Gaps up to TUNING.jump.maxJumpTiles wide
  *            count as passable for the validator.
@@ -69,6 +73,7 @@
  *   'r'  noisy floor: loose rocks
  *   '_'  boulder trap: pressure plate
  *   'O'  boulder trap: boulder start
+ *   'L'  extra-life pickup (+1 heart); will call LivesSystem.addLives(1, 'pickup')
  *
  * Keep this file free of imports: the level validator runs it outside the game.
  */
@@ -94,6 +99,7 @@ export const TILE = {
   realExit: 'e',
   fakeWall: 'w',
   movingPit: 'M',
+  checkpoint: 'F',
 } as const;
 
 /** A tile position in level data. */
@@ -130,6 +136,8 @@ export const RESERVED_TILES = {
   noiseRocks: 'r',
   boulderPlate: '_',
   boulder: 'O',
+  /** Extra-life pickup (+1 heart, capped at TUNING.lives.max). Hook: LivesSystem.addLives(1, 'pickup'). */
+  extraLife: 'L',
 } as const;
 
 /** Timing override for one spike group. (x, y) is any tile of that group. */

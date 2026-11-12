@@ -83,7 +83,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
 
     this.trapFloors = level.trapFloors.map((t) => new TrapFloor(scene, t, (f) => this.onDrop(f), dust));
     this.movingPits = level.movingPits.map((t) => new TrapFloor(scene, t, (f) => this.onDrop(f), dust));
-    this.popSpikes = level.popSpikes.map((t) => new PopupSpikes(scene, t));
+    this.popSpikes = level.popSpikes.map((t) => new PopupSpikes(scene, t, dust));
     this.allSpikes.push(...this.popSpikes);
     this.rocks = level.rocks.map(
       (t) => new FallingRock(scene, t, (r) => this.onSlam(r), (x, y) => this.dustEmitter.explode(1, x, y)),
@@ -207,7 +207,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
         const x = f.x + dx;
         const y = f.y + dy;
         if (this.level.wall[y]?.[x] !== false || this.deps.pits.isPit(x, y)) continue;
-        const p = new PopupSpikes(this.scene, { x, y });
+        const p = new PopupSpikes(this.scene, { x, y }, (px, py, n) => this.dustEmitter.explode(n, px, py));
         ring.push(p);
         this.allSpikes.push(p);
       }
@@ -245,7 +245,10 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     this.updateFakeWalls(deltaMs);
     if (this.deps.isPaused()) return;
 
-    // Proximity triggers: only when the player enters a new tile.
+    // Trap floors: distance from the tile edge, every frame (cheap: a few tiles per level).
+    this.checkTrapFloors(player.x, player.y);
+
+    // Other proximity triggers: only when the player enters a new tile.
     const tile = this.tileIndex(player.x, player.y);
     if (tile !== this.lastTile) {
       this.lastTile = tile;
@@ -271,13 +274,27 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     }
   }
 
+  /**
+   * A trap floor fires when the player's center is within triggerTiles of its tile edge,
+   * never from on top (standing on it, it waits until you step off toward the edge).
+   */
+  private checkTrapFloors(x: number, y: number): void {
+    const ts = this.ts;
+    const reach = TR.trapFloor.triggerTiles * ts;
+    for (const f of this.trapFloors) {
+      if (!f.isArmed) continue;
+      const left = f.tile.x * ts;
+      const top = f.tile.y * ts;
+      const dx = Math.max(left - x, 0, x - (left + ts));
+      const dy = Math.max(top - y, 0, y - (top + ts));
+      if (dx === 0 && dy === 0) continue;
+      if (dx * dx + dy * dy <= reach * reach) this.fire(f.tile);
+    }
+  }
+
   private checkTriggers(px: number, py: number): void {
     const near = (t: TilePos, d: number) => Math.max(Math.abs(t.x - px), Math.abs(t.y - py)) <= d;
     const on = (t: TilePos) => t.x === px && t.y === py;
-    for (const f of this.trapFloors) {
-      // Fires from ~1 tile away, never from on top (you must jump at the last moment).
-      if (!f.dropped && near(f.tile, TR.trapFloor.triggerTiles) && !on(f.tile)) this.fire(f.tile);
-    }
     for (const p of this.popSpikes) {
       if (p.state === 'hidden' && near(p.tile, TR.popSpikes.triggerTiles) && !on(p.tile)) this.fire(p.tile);
     }

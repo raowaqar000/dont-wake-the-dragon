@@ -11,6 +11,7 @@ import type { LevelData } from './types';
 //  - upper hall: on the exit route; sneak the top row or keep the pillar between you;
 //  - vault: every tile is close, so it can only be passed by sneaking;
 //  - great hall west and north-east: the open hall tempts you to run; pillars dampen noise.
+// Two checkpoints 'F': entering the great hall (row 36) and the upper hall (row 14).
 // Symbols are documented in ./types.ts.
 export const level01: LevelData = {
   id: 'level01',
@@ -30,7 +31,7 @@ export const level01: LevelData = {
     '#.........#####.DDD.....#', // 11 upper hall dragon (east of the pillar)
     '#..##.....#####.DDD.##c.#', // 12
     '#...............c.......#', // 13
-    '#....c....c.............#', // 14
+    '#.F..c....c.............#', // 14 checkpoint 2: entering the upper hall
     '#.#2#####################', // 15 entrance (left), portal 2 alcove
     '#....c....-..c..-...c...#', // 16 north lane: safe but longer; two 1-tile gaps to hop (optional shortcuts)
     '#.#######...###...#####.#', // 17
@@ -52,7 +53,7 @@ export const level01: LevelData = {
     '#......DDD..c...........#', // 33
     '#..###....#####....###..#', // 34
     '#..###...c.........###..#', // 35
-    '#....c..................#', // 36
+    '#.F..c..................#', // 36 checkpoint 1: entering the great hall
     '##.###################.##', // 37 entrance (left), portal pocket (right)
     '##.#################.cc##', // 38
     '##.#################1####', // 39

@@ -21,6 +21,10 @@ export interface ResultOverlayOptions {
   lines?: (string | ResultLine)[];
   buttonLabel: string;
   onPress: () => void;
+  /** Bigger button for important cards (e.g. "Restart level"); defaults from TUNING.overlay. */
+  buttonWidth?: number;
+  buttonHeight?: number;
+  buttonFontSize?: number;
 }
 
 /**
@@ -75,15 +79,17 @@ export class ResultOverlay {
     });
 
     // Button sits below the last line (same spot as before for short cards).
+    const bw = opts.buttonWidth ?? O.buttonWidth;
+    const bh = opts.buttonHeight ?? O.buttonHeight;
     const lastLineY = cy - 90 + Math.max(0, lines.length - 1) * O.lineGap;
-    const buttonY = Math.max(cy + 120, lastLineY + 40 + O.buttonHeight / 2);
+    const buttonY = Math.max(cy + 120, lastLineY + 40 + bh / 2);
     const button = scene.add
-      .rectangle(cx, buttonY, O.buttonWidth, O.buttonHeight, O.buttonColor)
+      .rectangle(cx, buttonY, bw, bh, O.buttonColor)
       .setStrokeStyle(4, 0xffffff, 0.8);
     const label = scene.add
       .text(cx, buttonY, opts.buttonLabel, {
         fontFamily: 'sans-serif',
-        fontSize: '52px',
+        fontSize: `${opts.buttonFontSize ?? 52}px`,
         fontStyle: 'bold',
         color: '#1a1406',
       })

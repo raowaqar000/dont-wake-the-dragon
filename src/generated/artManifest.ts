@@ -26,6 +26,11 @@ export const ART_FILES = {
     floor_tile: { file: 'floor_tile.png', width: 384, height: 384 },
     wall_tile: { file: 'wall_tile.png', width: 384, height: 384 },
     logo: { file: 'logo.png', width: 600, height: 388 },
+    ceiling_rock: { file: 'ceiling_rock.png', width: 96, height: 96 },
+    rubble: { file: 'rubble.png', width: 96, height: 96 },
+    closing_wall: { file: 'closing_wall.png', width: 144, height: 141 },
+    jump_button: { file: 'jump_button.png', width: 328, height: 333 },
+    hero_jump: { file: 'hero_jump.png', width: 97, height: 96 },
 } as const;
 
 export type ArtName = keyof typeof ART_FILES;

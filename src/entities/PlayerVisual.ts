@@ -33,7 +33,8 @@ export type FootstepListener = (pose: 'sneak' | 'run', x: number, y: number) => 
  *  - painted (default): one still image per direction, animated in code (bob, tiptoe
  *    squash/stretch and sway, run bounce and lean) around a pivot at the feet. A step
  *    clock fires the footsteps. The sack is a cut-out laid exactly over the painted sack
- *    that only grows, so it always covers it.
+ *    that only grows, so it always covers it. While airborne, hero_jump (sack painted in)
+ *    replaces the direction image and the sack overlay hides.
  *  - code-drawn fallback (if the images failed to load): frame animations as before.
  */
 export class PlayerVisual {
@@ -59,7 +60,9 @@ export class PlayerVisual {
   private readonly scene: Phaser.Scene;
 
   // Painted-look motion state (no per-frame allocations).
-  private artDir: ArtDir | null = null;
+  private artDir: ArtDir | 'jump' | null = null;
+  /** Painted airborne image loaded (otherwise the direction image stays on during a hop). */
+  private readonly jumpArt: boolean;
   /** Footsteps so far; a new whole number = a foot lands. */
   private stepPhase = 0.5;
   private idleClock = Math.random() * 1000;
@@ -76,6 +79,7 @@ export class PlayerVisual {
   ) {
     this.scene = scene;
     this.art = hasArt(scene, 'hero_down', 'hero_up', 'hero_right', 'hero_sack_down', 'hero_sack_up', 'hero_sack_right');
+    this.jumpArt = this.art && hasArt(scene, 'hero_jump');
     const s = 1 / V.textureResolution;
 
     if (this.art) {
@@ -181,16 +185,25 @@ export class PlayerVisual {
   /** Painted look: picks the direction image and animates bob / squash / sway / lean. */
   private syncArt(timeScale: number): void {
     const pivot = this.pivot!;
-    const key: ArtDir = this.dir === 'side' ? 'right' : this.dir;
+    // In the air: the jump image for every direction (the root's flip mirrors it for left).
+    const key: ArtDir | 'jump' =
+      this.player.airborne && this.jumpArt ? 'jump' : this.dir === 'side' ? 'right' : this.dir;
     if (key !== this.artDir) {
       this.artDir = key;
-      const a = ART_ANCHORS.hero[key];
-      this.body.setTexture(artKey(`hero_${key}`));
-      // The sack cut-out has the same canvas as the hero; grow it from the strap point.
-      this.sack
-        .setTexture(artKey(`hero_sack_${key}`))
-        .setOrigin(a.sackAnchor.x / a.width, a.sackAnchor.y / a.height)
-        .setPosition((a.sackAnchor.x - a.width / 2) * ART_SCALE, (a.sackAnchor.y - a.height) * ART_SCALE);
+      if (key === 'jump') {
+        // The sack is painted into the jump image, so the overlay hides until landing.
+        this.body.setTexture(artKey('hero_jump')).setScale(ART_SCALE * HA.jumpScale);
+        this.sack.setVisible(false);
+      } else {
+        const a = ART_ANCHORS.hero[key];
+        this.body.setTexture(artKey(`hero_${key}`)).setScale(ART_SCALE);
+        // The sack cut-out has the same canvas as the hero; grow it from the strap point.
+        this.sack
+          .setVisible(true)
+          .setTexture(artKey(`hero_sack_${key}`))
+          .setOrigin(a.sackAnchor.x / a.width, a.sackAnchor.y / a.height)
+          .setPosition((a.sackAnchor.x - a.width / 2) * ART_SCALE, (a.sackAnchor.y - a.height) * ART_SCALE);
+      }
     }
     this.sack.setScale(ART_SCALE * HA.sackScale * Math.max(1, this.sackSize.growth * this.sackSize.bounce));
     if (this.frozen) return;

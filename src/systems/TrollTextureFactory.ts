@@ -2,8 +2,9 @@ import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 
 /**
- * Code-drawn placeholders for feature 8 (to be replaced by painted art later):
- * ceiling rock, rock shadow, rubble and the jump button icon.
+ * Code-drawn textures for feature 8. The ceiling rock, rubble and jump button icon are
+ * fallbacks, used only if the painted images (ceiling_rock, rubble, jump_button) fail to load.
+ * The rock shadow and the pit overlay are always code-drawn.
  * Drawn at RES x and shown at 1 / RES (TROLL_TEXTURE_SCALE), like the other factories.
  */
 const RES = 2;

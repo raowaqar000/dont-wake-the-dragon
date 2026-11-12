@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TUNING } from '../../config';
+import { ART_FILES } from '../../generated/artManifest';
 import { ART_SCALE, artKey, hasArt } from '../../systems/ArtAssets';
 import type { ClosingWallSpec } from '../../systems/LevelParser';
 
@@ -37,7 +38,17 @@ export class ClosingWall {
 
     const slab = (): Phaser.GameObjects.Container => {
       const parts: Phaser.GameObjects.GameObject[] = [];
-      if (hasArt(scene, 'wall_tile')) {
+      if (hasArt(scene, 'closing_wall')) {
+        // Painted panel repeated down the slab: as wide as the slab (x displayScale),
+        // height stretched a little so a whole number of panels fills it.
+        const CA = TUNING.art.closingWall;
+        const tex = ART_FILES.closing_wall;
+        const sx = (this.half * CA.displayScale) / tex.width;
+        const count = Math.max(1, Math.round(h / (tex.height * sx)));
+        const sy = h / count / tex.height;
+        parts.push(scene.add.rectangle(0, 0, this.half, h, CA.backColor));
+        parts.push(scene.add.tileSprite(0, 0, this.half, h, artKey('closing_wall')).setTileScale(sx, sy).setTint(CA.tint));
+      } else if (hasArt(scene, 'wall_tile')) {
         parts.push(
           scene.add
             .tileSprite(0, 0, this.half, h, artKey('wall_tile'))

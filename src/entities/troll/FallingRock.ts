@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../../config';
+import { ART_SCALE, artKey, hasArt } from '../../systems/ArtAssets';
 import type { TilePos } from '../../systems/LevelParser';
 import { TROLL_TEXTURE_SCALE } from '../../systems/TrollTextureFactory';
 
@@ -47,9 +48,16 @@ export class FallingRock {
       ease: 'Quad.easeIn',
     });
 
-    const rockScale = TROLL_TEXTURE_SCALE * RK.displayScale;
+    // Painted rock / rubble if loaded, code-drawn otherwise.
+    const A = TUNING.art;
+    const rockArt = hasArt(sc, 'ceiling_rock');
+    const rockKey = rockArt ? artKey('ceiling_rock') : TEXTURE_KEYS.ceilingRock;
+    const rockScale = rockArt ? ART_SCALE * A.ceilingRock.displayScale : TROLL_TEXTURE_SCALE * RK.displayScale;
+    const rubbleArt = hasArt(sc, 'rubble');
+    const rubbleKey = rubbleArt ? artKey('rubble') : TEXTURE_KEYS.rubble;
+    const rubbleScale = rubbleArt ? ART_SCALE * A.rubble.displayScale : TROLL_TEXTURE_SCALE;
     const rock = sc.add
-      .image(this.cx, this.cy - RK.dropHeightPx, TEXTURE_KEYS.ceilingRock)
+      .image(this.cx, this.cy - RK.dropHeightPx, rockKey)
       .setScale(rockScale * 1.3)
       .setAlpha(0)
       .setDepth(TUNING.troll.fxDepth);
@@ -65,7 +73,7 @@ export class FallingRock {
         shadow.destroy();
         rock.destroy();
         this.state = 'landed';
-        sc.add.image(this.cx, this.cy, TEXTURE_KEYS.rubble).setScale(TROLL_TEXTURE_SCALE).setDepth(TUNING.troll.depth + 0.6);
+        sc.add.image(this.cx, this.cy, rubbleKey).setScale(rubbleScale).setDepth(TUNING.troll.depth + 0.6);
         this.onSlam(this);
       },
     });

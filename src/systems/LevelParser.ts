@@ -75,6 +75,8 @@ export interface ParsedLevel {
   realExit: TileRect | null;
   realExitTiles: TilePos[];
   trapLinks: { from: TilePos; to: TilePos[] }[];
+  /** 'F' checkpoint tiles (walkable floor), in grid order. */
+  checkpoints: TilePos[];
 }
 
 /**
@@ -126,6 +128,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
   const fakeWalls: TilePos[] = [];
   const movingPits: TilePos[] = [];
   const realExitTiles: TilePos[] = [];
+  const checkpoints: TilePos[] = [];
   const warned = new Set<string>();
 
   grid.forEach((row, y) => {
@@ -150,6 +153,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
       else if (ch === TILE.fakeWall) fakeWalls.push({ x, y });
       else if (ch === TILE.movingPit) movingPits.push({ x, y });
       else if (ch === TILE.realExit) realExitTiles.push({ x, y });
+      else if (ch === TILE.checkpoint) checkpoints.push({ x, y });
       if (ch === TILE.playerStart) starts.push({ x, y });
       else if (ch === TILE.exit) exitTiles.push({ x, y });
       else if (ch === TILE.spikes) spikeTiles.push({ x, y });
@@ -226,6 +230,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
     realExit: realExitTiles.length > 0 ? boundsOf(realExitTiles) : null,
     realExitTiles,
     trapLinks: (data.trapLinks ?? []).map((l) => ({ from: { x: l.from.x, y: l.from.y }, to: l.to.map((t) => ({ x: t.x, y: t.y })) })),
+    checkpoints,
   };
 }
 

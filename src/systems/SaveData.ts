@@ -44,6 +44,66 @@ export function addDeath(levelId: string): number {
   return n;
 }
 
+/** The last checkpoint reached on a level (memory only, like attempts). */
+export interface CheckpointSave {
+  /** Checkpoint tile the player respawns on. */
+  x: number;
+  y: number;
+  /** Every checkpoint touched so far ("x,y"); these don't save again. */
+  reached: string[];
+  /** Pickups ("kind:x,y") and chests ("x,y") taken before the checkpoint: kept. */
+  pickups: string[];
+  chests: string[];
+  /** Loot total at the checkpoint (kept on respawn). */
+  loot: number;
+  /** Run time when it was reached (ms); the timer resumes from here. */
+  timeMs: number;
+}
+
+const checkpoints = new Map<string, CheckpointSave>();
+
+export function loadCheckpoint(levelId: string): CheckpointSave | undefined {
+  return checkpoints.get(levelId);
+}
+
+export function saveCheckpoint(levelId: string, save: CheckpointSave): void {
+  checkpoints.set(levelId, save);
+}
+
+/** After an escape the next run starts from the level start again. */
+export function clearCheckpoint(levelId: string): void {
+  checkpoints.delete(levelId);
+}
+
+/**
+ * Lives left in the current level attempt (memory only, like checkpoints). Missing = full
+ * (TUNING.lives.start). Survives scene restarts (respawns), reset by an escape or a game over.
+ */
+const lives = new Map<string, number>();
+
+export function loadLives(levelId: string): number {
+  return lives.get(levelId) ?? TUNING.lives.start;
+}
+
+export function saveLives(levelId: string, n: number): void {
+  lives.set(levelId, Math.max(0, Math.floor(n)));
+}
+
+/** Back to TUNING.lives.start for the next attempt. */
+export function resetLives(levelId: string): void {
+  lives.delete(levelId);
+}
+
+/**
+ * Adds lives from outside a running level (future shop / rewarded ad), capped at
+ * TUNING.lives.max. Returns the new count. In-level code should use LivesSystem.addLives.
+ */
+export function grantLives(levelId: string, n: number): number {
+  const next = Math.min(TUNING.lives.max, loadLives(levelId) + Math.max(0, Math.floor(n)));
+  saveLives(levelId, next);
+  return next;
+}
+
 /** Attempts this session (memory only, reset when the app restarts). */
 const sessionAttempts = new Map<string, number>();
 

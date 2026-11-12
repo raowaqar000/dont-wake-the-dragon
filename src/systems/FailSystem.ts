@@ -30,6 +30,13 @@ export const FAIL_REASONS = {
   pit: { id: 'pit', title: 'CAUGHT!', titleColor: F.titleColor, subtitle: 'The floor gave way.' },
   dragon: { id: 'dragon', title: 'THE DRAGON WOKE UP!', titleColor: F.titleColor, subtitle: 'You made too much noise.' },
   crushed: { id: 'crushed', title: 'SQUASHED!', titleColor: F.titleColor, subtitle: 'The cave closed in.' },
+  /** Last life lost (any cause): the level restarts from the very beginning. */
+  outOfLives: {
+    id: 'outOfLives',
+    title: TUNING.lives.gameOverTitle,
+    titleColor: TUNING.lives.gameOverColor,
+    subtitle: TUNING.lives.gameOverSubtitle,
+  },
 } as const satisfies Record<string, FailReason>;
 
 export interface FailSystemDeps {
@@ -44,6 +51,14 @@ export interface FailSystemDeps {
   onDeath?: () => void;
   /** godMode ignored a fail (systems that latched a fail can re-arm). */
   onGodModeIgnored?: () => void;
+  /** Spends one life for this death (called right after onDeath) and returns the lives left. */
+  consumeLife: () => number;
+  /** Lines for the OUT OF LIVES card (loot lost, deaths), read when the card opens. */
+  gameOverLines: () => ResultLine[];
+  /** "Restart level" on the OUT OF LIVES card: clear checkpoints/loot/timer, refill lives, restart. */
+  onRestartLevel: () => void;
+  /** Quick trap death with lives left: short "-1 heart" pop over the hero. */
+  onLifeLostPop?: () => void;
 }
 
 /**
@@ -57,6 +72,8 @@ export class FailSystem {
   private over = false;
   private finished = false;
   private lastGodFlash = -Infinity;
+  /** Lives left after the death that ended this run (set in begin()). */
+  private livesLeft = Infinity;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -80,16 +97,28 @@ export class FailSystem {
     this.finish(reason, effect);
   }
 
+  /** True once the death that ended this run used up the last life. */
+  get isOutOfLives(): boolean {
+    return this.livesLeft <= 0;
+  }
+
   /**
-   * Trap death: quick hit effect, then the level restarts after quickRestartMs with no
-   * overlay. Dragon wake-ups keep the full sequence + card (begin/finish).
+   * Trap death: quick hit effect and a "-1 heart" pop, then the scene restarts at the last
+   * checkpoint after quickRestartMs with no overlay. On the last life the OUT OF LIVES card
+   * opens instead. Dragon wake-ups keep the full sequence + card (begin/finish).
    */
   quickFail(reason: FailReason, effect: FailEffect = { kind: 'hit' }): void {
     if (this.over || this.godModeIgnore(reason)) return;
     this.begin();
     this.finished = true;
     this.playEffect(effect);
-    console.info(`[fail] ${reason.id} -> quick restart`);
+    if (this.isOutOfLives) {
+      console.info(`[fail] ${reason.id} -> out of lives`);
+      this.scene.time.delayedCall(F.overlayDelayMs, () => this.openGameOver());
+      return;
+    }
+    this.deps.onLifeLostPop?.();
+    console.info(`[fail] ${reason.id} -> quick restart (${this.livesLeft} lives left)`);
     this.scene.time.delayedCall(F.quickRestartMs, this.deps.onRetry);
   }
 
@@ -112,6 +141,7 @@ export class FailSystem {
     this.deps.player.freeze();
     this.deps.joystick.setEnabled(false);
     this.deps.onDeath?.();
+    this.livesLeft = this.deps.consumeLife();
     return true;
   }
 
@@ -122,6 +152,10 @@ export class FailSystem {
     this.playEffect(effect);
 
     this.scene.time.delayedCall(overlayDelayMs, () => {
+      if (this.isOutOfLives) {
+        this.openGameOver();
+        return;
+      }
       new ResultOverlay(this.scene, {
         title: reason.title,
         titleColor: reason.titleColor,
@@ -129,6 +163,22 @@ export class FailSystem {
         buttonLabel: 'Try again',
         onPress: this.deps.onRetry,
       });
+    });
+  }
+
+  /** OUT OF LIVES card with a big "Restart level" button (same tap safety as every card). */
+  private openGameOver(): void {
+    const L = TUNING.lives;
+    const r = FAIL_REASONS.outOfLives;
+    new ResultOverlay(this.scene, {
+      title: r.title,
+      titleColor: r.titleColor,
+      lines: [r.subtitle, ...this.deps.gameOverLines()],
+      buttonLabel: L.restartLabel,
+      buttonWidth: L.restartButtonWidth,
+      buttonHeight: L.restartButtonHeight,
+      buttonFontSize: L.restartFontSize,
+      onPress: this.deps.onRestartLevel,
     });
   }
 

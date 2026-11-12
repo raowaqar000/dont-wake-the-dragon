@@ -27,6 +27,8 @@ export class PopupSpikes {
   constructor(
     private readonly scene: Phaser.Scene,
     public readonly tile: TilePos,
+    /** Dust puff for the first-pop warning. */
+    private readonly dust?: (x: number, y: number, n: number) => void,
   ) {
     const ts = TUNING.level.tileSize;
     this.cx = (tile.x + 0.5) * ts;
@@ -59,17 +61,25 @@ export class PopupSpikes {
     return this.state === 'up';
   }
 
-  /** Pops (hidden: almost at once; revealed: after a short warning). */
+  /**
+   * Pops after a warning. Hidden: a short rattle (tips peek out and shake, a puff of dust)
+   * for popDelayMs. Revealed: the plate shakes for revealedWarnMs.
+   */
   fire(now: number): void {
     if (this.state !== 'hidden') return;
     this.state = 'warn';
     this.stateUntil = now + (this.revealed ? P.revealedWarnMs : P.popDelayMs);
+    if (!this.revealed) {
+      this.raised.setVisible(true).setScale(1, 0.15);
+      this.dust?.(this.cx, this.cy, P.warnDust);
+    }
   }
 
   update(now: number): void {
     if (this.state === 'hidden') return;
     if (this.state === 'warn') {
-      if (this.revealed) this.root.x = this.cx + Math.sin(now * 0.09) * S.warnShakePx;
+      const shake = this.revealed ? S.warnShakePx : P.warnShakePx;
+      this.root.x = this.cx + Math.sin(now * 0.09) * shake;
       if (now < this.stateUntil) return;
       this.root.x = this.cx;
       this.state = 'up';

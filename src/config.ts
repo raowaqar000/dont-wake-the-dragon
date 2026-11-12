@@ -33,12 +33,19 @@ export const TEXTURE_KEYS = {
   dragonZ: 'dragon_z',
   smokePuff: 'smoke_puff',
   flame: 'flame',
-  /** Feature 8 placeholders (code-drawn until painted versions exist). */
+  /** Feature 8 code-drawn textures: fallbacks for the painted rock, rubble and jump button; the shadow and pit overlay are always code-drawn. */
   ceilingRock: 'ceiling_rock',
   rockShadow: 'rock_shadow',
   rubble: 'rubble',
   jumpIcon: 'jump_icon',
   pitOverlay: 'pit_overlay',
+  /** Lives HUD (code-drawn, painted-style placeholders until heart art exists). */
+  heartFull: 'heart_full',
+  heartEmpty: 'heart_empty',
+  heartShardLeft: 'heart_shard_left',
+  heartShardRight: 'heart_shard_right',
+  /** Red screen-edge glow on the last life. */
+  dangerVignette: 'danger_vignette',
 } as const;
 
 export const COLORS = {
@@ -288,7 +295,7 @@ export const TUNING = {
     charColor: 0x2a2224,
     charMs: 260,
     /** Trap deaths: quick hit effect, then auto-restart after this long with no overlay (ms). */
-    quickRestartMs: 800,
+    quickRestartMs: 700,
     /** Crushed by closing walls: squash amount and time. */
     crushSquash: 0.6,
     crushMs: 140,
@@ -299,17 +306,18 @@ export const TUNING = {
     /** Time in the air (ms). */
     airMs: 450,
     /** Ground distance of a full jump (tiles). Speed in the air = distance / airMs. */
-    distanceTiles: 2.75,
-    /** Widest gap the level validator treats as jumpable (tiles). Keep below distanceTiles - 0.5. */
+    distanceTiles: 3.1,
+    /** Widest gap the level validator treats as jumpable (tiles). Keep about 1 tile below
+     *  distanceTiles, so jumps feel generous rather than exact. */
     maxJumpTiles: 2,
     /** How fast the air velocity turns toward the joystick (fraction per second). */
     airControlPerSec: 5,
     /** No new jump this long after landing (ms). No double jump. */
     cooldownMs: 150,
     /** Jump still works this long after the body's center moved over a gap (ms). */
-    coyoteMs: 100,
+    coyoteMs: 150,
     /** A press this long before the jump is allowed again still jumps (ms). */
-    bufferMs: 120,
+    bufferMs: 150,
     /** Player falls in when his center is inside a pit tile shrunk by this (px). */
     fallInset: 6,
     /** Look: max lift (px), extra scale at the top, squash on takeoff / landing. */
@@ -345,21 +353,29 @@ export const TUNING = {
     depth: 1,
     /** Effects above the player (falling rock, rubble). */
     fxDepth: 12,
-    /** Trap floor 't': drops into a pit when the player is this close (Chebyshev tiles). */
+    /**
+     * Trap floor 't': fires when the player's center is within triggerTiles of the tile's
+     * edge (checked every frame, never from on top), shakes for dropDelayMs, then drops.
+     */
     trapFloor: {
-      triggerTiles: 1,
-      dropDelayMs: 150,
+      triggerTiles: 0.8,
+      dropDelayMs: 300,
       collapseMs: 260,
       dust: 10,
+      /** Shake before the drop: a floor patch jitters this much (px), with a little dust. */
+      shakePx: 2,
+      shakeDust: 3,
       /** Tell: a thin crack. */
       crackColor: 0x1e1a22,
-      crackAlpha: 0.4,
+      crackAlpha: 0.55,
     },
     /** Pop-up spikes 'i': hidden, shoot up when the player is next to them. */
     popSpikes: {
       triggerTiles: 1,
-      /** First pop (still hidden): delay before they are up. */
-      popDelayMs: 100,
+      /** First pop (still hidden): the tile rattles with a puff of dust for this long, then they rise. */
+      popDelayMs: 250,
+      warnDust: 4,
+      warnShakePx: 1.5,
       /** Once revealed, later pops warn this long first. */
       revealedWarnMs: 450,
       upMs: 2500,
@@ -367,31 +383,31 @@ export const TUNING = {
       rearmMs: 400,
       /** Tell: tiny pinholes. */
       holeColor: 0x15121a,
-      holeAlpha: 0.32,
+      holeAlpha: 0.45,
     },
     /** Falling ceiling rock 'R'. */
     rock: {
       triggerTiles: 1,
       /** Shadow grows for shadowMs; the rock drops during the last fallMs of it. */
-      shadowMs: 750,
+      shadowMs: 900,
       fallMs: 170,
       dropHeightPx: 170,
-      shadowMaxAlpha: 0.55,
+      shadowMaxAlpha: 0.65,
       shakeMs: 180,
       shakeIntensity: 0.008,
       slamDust: 12,
       /** Tell: a grain of grit falls every min..max ms while on screen. */
-      gritMinMs: 1600,
-      gritMaxMs: 3600,
+      gritMinMs: 1100,
+      gritMaxMs: 2600,
       displayScale: 1,
     },
     /** Closing walls '[' + ']': slide together across the corridor between them. */
     closingWall: {
       /** Triggers when the player is in the corridor or this many rows before/after it. */
       triggerAheadTiles: 0,
-      warnMs: 250,
-      warnShakePx: 2,
-      closeMs: 1200,
+      warnMs: 350,
+      warnShakePx: 3,
+      closeMs: 1600,
       /** Stay shut, then slide back open (no softlock). */
       holdMs: 2500,
       openMs: 1500,
@@ -399,13 +415,13 @@ export const TUNING = {
       crushGapPx: 24,
       tint: 0x5e4a3a,
       seamColor: 0x0b0a0d,
-      seamAlpha: 0.55,
+      seamAlpha: 0.7,
     },
     /** Fake coin '$' / fake gem '*': no loot, a ring of spikes pops around it, noise. */
     fakeTreasure: {
-      ringDelayMs: 250,
+      ringDelayMs: 350,
       /** Tell: slightly duller tint, gems don't twinkle. */
-      tint: 0xd0c4b0,
+      tint: 0xc0b49e,
       text: '?!',
       textColor: '#ff6b5c',
     },
@@ -415,7 +431,7 @@ export const TUNING = {
       slideMs: 650,
       /** Tell: scuff marks on the floor toward the real spot. */
       scuffColor: 0x0b0a0d,
-      scuffAlpha: 0.28,
+      scuffAlpha: 0.38,
     },
     /** Fake wall 'w': looks like wall, walkable. Fades while the player is inside. */
     fakeWall: {
@@ -441,7 +457,7 @@ export const TUNING = {
    */
   noise: {
     /** Loudness of one footstep per move state. Standing still makes no steps. */
-    footstep: { sneak: 0.22, run: 1 },
+    footstep: { sneak: 0.2, run: 0.75 },
     /** While a chest's ring fills: one tick every chestTickMs, then a louder pop when it opens. */
     chestTick: 0.5,
     chestTickMs: 350,
@@ -449,7 +465,7 @@ export const TUNING = {
     /** Teleport: a small noise at both portals. */
     portal: 0.4,
     /** Jump landing: louder than a sneak step, quieter than a run step. */
-    land: 0.6,
+    land: 0.45,
     /** A step on rubble (from a fallen ceiling rock): louder than a sneak step. */
     rubbleStep: 0.5,
     /** Troll traps: rock slam, closing walls, fake treasure, floor drop. */
@@ -457,7 +473,7 @@ export const TUNING = {
     wallsClose: 0.7,
     fakeTreasure: 0.6,
     floorDrop: 0.45,
-    /** Carry range (px) of loudness 1. A run step reaches ~7 tiles. */
+    /** Carry range (px) of loudness 1. A run step (0.75) reaches ~5 tiles. */
     rangePerLoudness: 336,
     /** Meter points at the source for loudness 1, before falloff. */
     meterPerLoudness: 16,
@@ -531,8 +547,11 @@ export const TUNING = {
       /** Dropping back a stage needs the meter this far below the threshold (stops flicker). */
       hysteresis: 5,
       /** Quiet time before the meter drains (ms), then the drain speed (points/s). */
-      drainDelayMs: 1000,
-      drainPerSec: 10,
+      drainDelayMs: 800,
+      drainPerSec: 15,
+      /** Noises worth less than this (meter points) still add up but don't stop the drain,
+       *  so sneaking (max ~3.2 per step) can never wake a dragon. */
+      quietBelow: 3.5,
       /** In godMode the meter stops here, so dragons never wake. */
       godModeCap: 99,
     },
@@ -877,6 +896,114 @@ export const TUNING = {
     attemptsColor: '#d8d0c8',
   },
 
+  /** Checkpoint 'F': a small flag with a glow. Touching it saves the spot (memory only, per level). */
+  checkpoint: {
+    /** Reached when the player's center is this close to the flag's tile center (px).
+     *  76 > 1.5 tiles, so walking anywhere through a 3-wide corridor past the flag counts. */
+    triggerRadius: 76,
+    /** Flag: pole height, cloth size (px) and colors before / after it is reached. */
+    poleHeight: 30,
+    poleColor: 0x3a2a1c,
+    clothW: 16,
+    clothH: 11,
+    idleColor: 0x7fb8ff,
+    activeColor: 0xffc23a,
+    /** Small stone base under the pole. */
+    baseColor: 0x5a5060,
+    /** Soft glow above the darkness so it is visible from afar. */
+    glowRadius: 40,
+    glowIdleAlpha: 0.14,
+    glowActiveAlpha: 0.32,
+    glowPulseMs: 1400,
+    /** Cloth waves this much (deg) with this period (ms). */
+    waveDeg: 8,
+    waveMs: 900,
+    /** Reached: "Checkpoint!" pop and sparkles. */
+    text: 'Checkpoint!',
+    textColor: '#ffe27a',
+    fontSize: 30,
+    sparkles: 16,
+    sparkleTint: 0xffe27a,
+    popScale: 1.35,
+    popMs: 220,
+    depth: 3,
+  },
+
+  /**
+   * Lives per level attempt (memory only, like checkpoints). Every death costs one; at 0 the
+   * "OUT OF LIVES" card restarts the level from the very beginning. An escape refills them.
+   */
+  lives: {
+    /** Lives at the start of each level attempt. */
+    start: 3,
+    /** Cap for lives added from code (future extra-life pickup 'L', shop, rewarded ad). */
+    max: 5,
+
+    /** Hearts row under the HUD bar, right-aligned (the deaths counter is on the left). */
+    heartSize: 44,
+    heartGap: 8,
+    rightX: 696,
+    centerY: 128,
+    /** Heart texture is drawn at this multiple and shown scaled down (crisp). */
+    textureResolution: 2,
+    /** Painted-style colors (outline, fill, shade, highlight; empty heart). */
+    outlineColor: 0x1a0a0c,
+    fillColor: 0xe0313a,
+    shadeColor: 0x9c1a24,
+    highlightColor: 0xffb0a8,
+    emptyFillColor: 0x2a2026,
+    emptyAlpha: 0.75,
+
+    /** Losing a life: the heart shakes, cracks into two halves that fall apart, then the empty heart fades in. */
+    /** shakeMs + breakMs should stay under fail.quickRestartMs so trap deaths show the whole break. */
+    shakeMs: 200,
+    shakePx: 5,
+    breakMs: 440,
+    breakFallPx: 26,
+    breakSpreadPx: 12,
+    breakSpinDeg: 28,
+    emptyFadeMs: 260,
+    /** Gaining a life: the heart pops in. */
+    gainPopScale: 1.4,
+    gainPopMs: 260,
+
+    /** Last life: the remaining heart pulses red. */
+    lastPulseScale: 1.18,
+    lastPulseMs: 420,
+    lastPulseTint: 0xff5a5a,
+    /** Last life: red glow on the screen edges (fades out at 0 lives). */
+    vignetteColor: { r: 200, g: 20, b: 24 },
+    vignetteMinAlpha: 0.22,
+    vignetteMaxAlpha: 0.42,
+    vignettePulseMs: 900,
+    vignetteFadeMs: 400,
+    /** Glow texture size (stretched to the screen); the clear center is this fraction of it. */
+    vignetteTextureW: 180,
+    vignetteTextureH: 320,
+    vignetteInner: 0.55,
+    /** Under the HUD (1500) and the overlays, above the darkness. */
+    vignetteDepth: 1400,
+
+    /** Quick trap death: "-1 heart" pops over the hero (world space). */
+    lostText: '-1 heart',
+    lostTextColor: '#ff6b6b',
+    lostFontSize: 28,
+    lostOffsetY: 34,
+
+    /** Dragon card line. */
+    leftColor: '#ff9a9a',
+    leftFontSize: 40,
+
+    /** Game over card. */
+    gameOverTitle: 'OUT OF LIVES',
+    gameOverColor: '#ff4a4a',
+    gameOverSubtitle: 'The level starts over.',
+    restartLabel: 'Restart level',
+    restartButtonWidth: 520,
+    restartButtonHeight: 170,
+    restartFontSize: 58,
+  },
+
   save: {
     /** localStorage key prefix; the level id is appended. */
     bestLootKey: 'dwtd.bestLoot.',
@@ -966,6 +1093,8 @@ export const TUNING = {
       },
       /** Sack overlay base scale; it grows with loot (TUNING.loot.sack), never below the painted sack. */
       sackScale: 1,
+      /** Airborne image (hero_jump, sack painted in) size relative to displayScale. */
+      jumpScale: 1,
     },
 
     dragon: {
@@ -994,6 +1123,17 @@ export const TUNING = {
       riseSlidePx: 3,
     },
     crumble: { displayScale: 1 },
+    /** Falling ceiling rock (96 px texture -> 48 px, one tile) and the rubble it leaves. */
+    ceilingRock: { displayScale: 1 },
+    rubble: { displayScale: 1 },
+    /**
+     * Closing-wall slab: the panel is repeated down the slab. displayScale 1 = one panel as wide
+     * as the slab; panel height is stretched slightly so a whole number of panels fills the slab.
+     * backColor fills behind the panels (shows in the rounded corners between them).
+     */
+    closingWall: { displayScale: 1, tint: 0xffffff, backColor: 0x0b0a0d },
+    /** Painted jump button (328 px texture -> 164 px = the hit circle's diameter at displayScale 1). */
+    jumpButton: { displayScale: 1, alpha: 0.85, pressedAlpha: 1 },
     pit: {
       displayScale: 1,
       /** Hole overlay on every pit: darker center, shadow under the near (top) edge, light rim on the far (bottom) edge. */

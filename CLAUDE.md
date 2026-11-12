@@ -23,13 +23,13 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - `Dragon`: one sleeping dragon (sleep meter, 3 stages, breathing, Zzz, tail twitch, eye glow, meter bar, wake pose). Implements `NoiseListener`. All parts are placed through `toWorld()` (art frame = head facing right; the asset script mirrors the left-facing art), so an upright dragon only needs a base rotation. Part positions come from a `DragonRig` (painted: from the art anchors; head image sleep/stir/roar by stage; fallback: `TUNING.dragon`).
 - `src/systems/`:
   - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`; hero offset, smoothed look-ahead via `update()`, padded bounds).
-  - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem` (spikes, crumble; collapsed crumbles become pits); `FailSystem` (`fail` = card, `quickFail` = trap death with auto-restart, `begin/finish` = dragon sequence; `onDeath` hook counts deaths).
+  - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem` (spikes, crumble; collapsed crumbles become pits); `FailSystem` (`fail` = card, `quickFail` = trap death with auto-restart, `begin/finish` = dragon sequence; `onDeath` hook counts deaths; `consumeLife` spends a life in `begin()`, and at 0 lives every death opens the OUT OF LIVES card instead); `LivesSystem` (EventEmitter, `LIVES_EVENTS.changed`; `loseLife`, `addLives(n, source)` hook for the extra-life pickup / shop / ads, `resetToFull`; count kept in `SaveData` memory so it survives respawns).
   - Jump and troll traps: `PitMap` (which tiles are open pits; no physics bodies); `JumpSystem` (EventEmitter, `JUMP_EVENTS.takeoff/land/fell`; buffer, coyote time, cooldown, falls when the body center is over a pit); `TrollTrapSystem` (EventEmitter, `TROLL_EVENTS.triggered`; tile-based triggers checked only on tile change, trap links, tells, fake walls, rubble).
   - Noise and dragons: `NoiseSystem` (`emitNoise(x, y, loudness, source)`, distance falloff, grid-DDA wall dampening, pooled fading rings); `DragonSystem` (owns the dragons, shared smoke/fire emitters, stage haptics, the wake-up sequence, debug reach); `HapticsService` (Capacitor Haptics, `navigator.vibrate` fallback, never throws).
-  - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot and lifetime deaths per level in localStorage, guarded with try/catch; session attempts in memory). Fake treasure emits `LOOT_EVENTS.fakeTaken`.
-  - Graphics: `ArtAssets` (`queueArt`, `artKey(name)`, `hasArt(scene, ...names)`, `ART_SCALE`); `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory`, `TrollTextureFactory` (placeholders: ceiling rock, rock shadow, rubble, jump icon) and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
+  - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot and lifetime deaths per level in localStorage, guarded with try/catch; session attempts, checkpoints and lives in memory; `grantLives(levelId, n)` adds lives from outside a level, capped at `TUNING.lives.max`). Fake treasure emits `LOOT_EVENTS.fakeTaken`.
+  - Graphics: `ArtAssets` (`queueArt`, `artKey(name)`, `hasArt(scene, ...names)`, `ART_SCALE`); `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory`, `TrollTextureFactory` (code-drawn fallbacks for the painted ceiling rock, rubble and jump button; always-used rock shadow and pit overlay), `UiTextureFactory` (code-drawn hearts: full, empty, two broken halves; red edge-glow texture) and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
   - Browser: `MobileGuards` (blocks zoom, scroll and long-press).
-- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only; ignores touches that start on interactive objects); `JumpButton` (round, semi-transparent, bottom right; ignores presses for `ignoreAfterStartMs` after a restart); `Hud` (top bar: loot, timer, gems, chests; deaths and session attempts under it); `ResultOverlay` (end-of-run card); `EscapeOverlay`; `DebugOverlay` (below the HUD).
+- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only; ignores touches that start on interactive objects); `JumpButton` (round, semi-transparent, bottom right; ignores presses for `ignoreAfterStartMs` after a restart); `Hud` (top bar: loot, timer, gems, chests; deaths and session attempts under it on the left); `LivesHud` (hearts under the bar on the right; break animation, last-life red pulse and red edge glow at depth 1400); `ResultOverlay` (end-of-run card; optional bigger button); `EscapeOverlay`; `DebugOverlay` (below the HUD).
 - `src/levels/`: `types.ts` (level format and symbols, no imports); `index.ts` (`LEVELS`, `getLevel(id)`; start level = `TUNING.debug.startLevel`); `level01.ts` ("The Deep Warren", 25x60 tiles); `level02.ts` ("The Trickster's Tunnel", 25x59, jumping + 18 troll traps, 2 dragons).
 - `android/`: Capacitor Android project. `dist/`: Vite output (Capacitor `webDir`).
 
@@ -46,6 +46,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - `fail(reason, effect)` handles traps and pits. Add new causes to `FAIL_REASONS`.
   - A fail with a sequence (the dragon) calls `fail.begin()` first (locks the run, freezes input), plays its sequence, then calls `fail.finish(reason, effect, overlayDelayMs)`.
   - Escape calls `fail.lock()` first. The first outcome wins, and nothing can end the run twice.
+  - Lives (`TUNING.lives`): every real death (trap, pit, crush, dragon) costs one life inside `fail.begin()`. With lives left, it respawns at the last checkpoint as before. On the last life, the OUT OF LIVES card ("Restart level") clears the checkpoint (loot and timer) and refills lives. Escaping refills lives too. God mode never costs a life. The deaths counter is unchanged (lifetime per level).
   - Check `fail.isOver` (and `portals.isTeleporting`) before reacting to gameplay.
   - `TUNING.debug.godMode` turns fails into a flash, and caps dragon meters at 99 so they never wake.
 - **Levels are grids of strings** (`LevelData.grid`, one char per tile, row 0 at the top, `TUNING.level.tileSize` = 48).
@@ -56,7 +57,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - `LevelLoader.check` throws if any check fails.
 - **Painted art with a code-drawn fallback.** Every entity checks `hasArt(scene, ...)` and uses `artKey(name)` textures, otherwise the procedural texture (still built at boot). Display sizes are `TUNING.art.<asset>.displayScale` times `ART_SCALE` (0.5, the art is 2x). Never hard-code art anchor points: add them to the script's `CONFIG` so they land in `artManifest.ts`. After replacing an image, run `npm run assets` and check `art/preview/`.
 - **Visual and physics are split:** `Player` is physics only, and `PlayerVisual` reads its velocity after the physics step (POST_UPDATE).
-- **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108. HUD is 1500, debug 2000, overlays 3000.
+- **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108. Last-life red edge glow 1400, HUD is 1500 (hearts 1500-1502), debug 2000, overlays 3000.
 - **Clean up on scene restart:** retry calls `scene.restart()`. Remove scene and game event listeners on `SHUTDOWN`.
 
 ## Level symbols (from `src/levels/types.ts`)
@@ -90,6 +91,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 | `r` | noisy floor: loose rocks | reserved |
 | `_` | boulder trap: pressure plate | reserved |
 | `O` | boulder trap: boulder start | reserved |
+| `L` | extra-life pickup (+1 heart, capped at `TUNING.lives.max`); hook: `LivesSystem.addLives(1, 'pickup')` | reserved |
 
 Coins or gems on top of another tile (for example a gem on a crumbling floor) go in `LevelData.treasureOnTiles`. If that floor collapses first, the treasure is lost.
 
@@ -146,6 +148,17 @@ The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles
    - camera: hero at `heroScreenY` 0.58, smoothed look-ahead (`CameraRig.update`, `CameraRig.look`), `boundsPadding` lets the view go past the level edges;
    - hero shown ~1.3x bigger (physics unchanged); debug text and dragon debug off by default;
    - fake walls match the new wall color and edges but keep a visible glint tell.
+10. Difficulty rebalance ("one more try", not frustrating):
+   - checkpoints `F` (`Checkpoint` flag entity, `CheckpointSystem`, memory-only `SaveData` checkpoint): trap deaths and dragon "Try again" respawn at the last one, loot taken before it is kept (`LootSystem.snapshot/restore`), the timer resumes; an escape clears it. Validator checks each checkpoint is reachable and can reach the exit;
+   - level02 rebuilt teach-before-punish: every troll trap type fires once harmlessly (nook / corner) before its dangerous version, at most 2 traps in a row, 4 checkpoints; level01 got 2 checkpoints;
+   - fairer tells: trap floor triggers from 0.8 tiles off its edge (every frame) and shakes 0.3 s before dropping; hidden pop-up spikes rattle 0.25 s first; rock shadow 0.9 s; walls close in 1.6 s; tells a bit stronger;
+   - jump 3.1 tiles, coyote and buffer 150 ms; quieter run steps and landings, faster dragon drain, and `dragon.meter.quietBelow` so sneak steps never hold off the drain.
+11. Lives:
+   - 3 lives per level attempt (`TUNING.lives.start`, cap `max` 5 for lives added from code); every death costs one through `FailSystem`;
+   - with lives left: trap deaths quick-respawn with a "-1 heart" pop over the hero, and the dragon card shows "Lives left: X";
+   - last life lost: OUT OF LIVES card (loot lost = everything this attempt, deaths, big "Restart level" button with the usual tap safety) restarts from the very beginning (checkpoints, loot and timer cleared, lives full); escaping refills lives;
+   - `LivesHud`: code-drawn painted-style hearts under the bar on the right; a lost heart shakes, cracks into two falling halves and fades to an empty heart; on the last life the heart pulses red and a red edge glow pulses (fades out at 0);
+   - hooks: reserved symbol `L` (extra-life pickup), `LivesSystem.addLives` / `GameScene.addLives` in a level, `SaveData.grantLives` outside one (shop, rewarded ad). Painted heart art is still to come.
 
 ## Next planned features
 

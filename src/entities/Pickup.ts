@@ -107,6 +107,14 @@ export class Pickup {
     });
   }
 
+  /** Taken before the last checkpoint: gone at once, no effects. */
+  removeNow(): void {
+    if (this.state !== 'idle') return;
+    this.state = 'collected';
+    this.twinkle?.destroy();
+    this.image.destroy();
+  }
+
   /** The floor under it collapsed: falls into the pit and is gone. */
   lose(): void {
     if (this.state !== 'idle') return;

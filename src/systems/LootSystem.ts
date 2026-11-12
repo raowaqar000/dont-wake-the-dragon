@@ -9,7 +9,12 @@ import { LootFx } from './LootFx';
 const T = TUNING.treasure;
 const L = TUNING.loot;
 
-export type LootKind = 'coin' | 'gem' | 'chest';
+/** 'restore': loot kept from a checkpoint was counted back in (delta 0). */
+export type LootKind = 'coin' | 'gem' | 'chest' | 'restore';
+
+function pickupKey(p: Pickup): string {
+  return `${p.kind}:${p.tile.x},${p.tile.y}`;
+}
 
 export const LOOT_EVENTS = {
   /** Loot total went up. Payload: LootChange. */
@@ -133,6 +138,35 @@ export class LootSystem extends Phaser.Events.EventEmitter {
     }
 
     this.updateChest(x, y, deltaMs);
+  }
+
+  /** Keys of everything taken so far (for a checkpoint): pickups "kind:x,y", chests "x,y". */
+  snapshot(): { pickups: string[]; chests: string[] } {
+    return {
+      pickups: this.pickups.filter((p) => p.state === 'collected').map(pickupKey),
+      chests: this.chests.filter((c) => c.state === 'open').map((c) => `${c.tile.x},${c.tile.y}`),
+    };
+  }
+
+  /** Respawn at a checkpoint: removes what was taken before it and counts it again, silently. */
+  restore(s: { pickups: readonly string[]; chests: readonly string[] }): void {
+    const picked = new Set(s.pickups);
+    const opened = new Set(s.chests);
+    for (const p of this.pickups) {
+      if (!picked.has(pickupKey(p))) continue;
+      p.removeNow();
+      if (this.fakes.has(p)) continue;
+      if (p.kind === 'coin') this.coins++;
+      else this.gems++;
+      this.total += p.value;
+    }
+    for (const c of this.chests) {
+      if (!opened.has(`${c.tile.x},${c.tile.y}`)) continue;
+      c.openNow();
+      this.openedChests++;
+      this.total += c.value;
+    }
+    if (this.total > 0 || this.openedChests > 0) this.addLoot('restore', 0);
   }
 
   /** A crumbling floor collapsed: anything lying on it falls in and is lost. */

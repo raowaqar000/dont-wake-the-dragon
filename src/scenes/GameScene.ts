@@ -18,7 +18,11 @@ import { NoiseSystem } from '../systems/NoiseSystem';
 import { LevelLoader } from '../systems/LevelLoader';
 import { Lighting } from '../systems/Lighting';
 import { LOOT_EVENTS, LootSystem, sackScaleFor, type LootChange } from '../systems/LootSystem';
-import { addDeath, loadBestLoot, loadDeaths, saveBestLoot, startAttempt } from '../systems/SaveData';
+import { addDeath, clearCheckpoint, loadBestLoot, loadDeaths, saveBestLoot, startAttempt } from '../systems/SaveData';
+import { CheckpointSystem } from '../systems/CheckpointSystem';
+import { LivesSystem, type LifeSource } from '../systems/LivesSystem';
+import { LootFx } from '../systems/LootFx';
+import { LivesHud } from '../ui/LivesHud';
 import { PortalSystem } from '../systems/PortalSystem';
 import { TrapSystem } from '../systems/TrapSystem';
 import { Joystick } from '../ui/Joystick';
@@ -40,6 +44,11 @@ export class GameScene extends Phaser.Scene {
   private rig!: CameraRig;
   private jumpButton!: JumpButton;
   private troll!: TrollTrapSystem;
+  private checkpoints!: CheckpointSystem;
+  /** Lives for this level attempt (survive checkpoint respawns; refilled on escape / game over). */
+  private lives!: LivesSystem;
+  /** Run time already spent before the checkpoint this run resumed from (ms). */
+  private timeOffsetMs = 0;
   private debug?: DebugOverlay;
   private level!: LevelData;
   private deaths = 0;
@@ -76,7 +85,9 @@ export class GameScene extends Phaser.Scene {
 
     const exit = new ExitZone(this, built.exitRect);
 
-    this.player = new Player(this, built.playerStart.x, built.playerStart.y);
+    // Respawn at the last checkpoint reached (trap death or "Try again"), else the level start.
+    const spawn = CheckpointSystem.spawnFor(this.level.id) ?? built.playerStart;
+    this.player = new Player(this, spawn.x, spawn.y);
     const visual = new PlayerVisual(this, this.player);
     this.physics.add.collider(this.player, built.walls);
     this.physics.add.overlap(this.player, exit.zone, this.onEscape, undefined, this);
@@ -91,15 +102,23 @@ export class GameScene extends Phaser.Scene {
     this.jumpButton = new JumpButton(this);
     this.joystick = new Joystick(this);
 
+    this.lives = new LivesSystem(this.level.id);
+    const LV = TUNING.lives;
+    const lifeFx = new LootFx(this);
+
     this.fail = new FailSystem(this, {
       player: this.player,
       visual,
       joystick: this.joystick,
       camera: rig.world,
       onRetry: () => this.scene.restart(),
-      // Loot only counts if you escape.
+      // Loot only counts if you escape; loot taken before the last checkpoint is kept for the retry.
       resultLines: () => [
-        { text: `Loot lost: ${this.loot.loot}`, color: TUNING.hud.lootColor, fontSize: 44 },
+        { text: `Loot lost: ${Math.max(0, this.loot.loot - this.checkpoints.keptLoot)}`, color: TUNING.hud.lootColor, fontSize: 44 },
+        ...(this.checkpoints.hasCheckpoint
+          ? [{ text: 'Back to the last checkpoint', color: TUNING.checkpoint.textColor, fontSize: 32 }]
+          : []),
+        { text: `Lives left: ${this.lives.lives}`, color: LV.leftColor, fontSize: LV.leftFontSize, bold: true },
         { text: `Deaths: ${this.deaths}`, color: TUNING.hud.deathsColor, fontSize: 40 },
       ],
       onDeath: () => {
@@ -107,6 +126,14 @@ export class GameScene extends Phaser.Scene {
         this.deaths = addDeath(this.level.id);
         this.hud?.setDeaths(this.deaths);
       },
+      consumeLife: () => this.lives.loseLife(),
+      // Out of lives: everything collected this attempt is lost (checkpoint loot too).
+      gameOverLines: () => [
+        { text: `Loot lost: ${this.loot.loot}`, color: TUNING.hud.lootColor, fontSize: 44 },
+        { text: `Deaths: ${this.deaths}`, color: TUNING.hud.deathsColor, fontSize: 40 },
+      ],
+      onRestartLevel: () => this.restartLevel(),
+      onLifeLostPop: () => lifeFx.floatText(this.player.x, this.player.y - LV.lostOffsetY, LV.lostText, LV.lostTextColor, LV.lostFontSize),
       onGodModeIgnored: () => this.jump?.resetFall(),
     });
 
@@ -155,6 +182,15 @@ export class GameScene extends Phaser.Scene {
       this.player.speedMultiplier = this.loot.speedMultiplier;
     });
 
+    this.checkpoints = new CheckpointSystem(this, built.parsed.checkpoints, {
+      levelId: this.level.id,
+      player: this.player,
+      loot: this.loot,
+      runTimeMs: () => this.runTimeMs(),
+      isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+    });
+    this.timeOffsetMs = this.checkpoints.resumed?.timeMs ?? 0;
+
     this.traps = new TrapSystem(this, built.parsed, {
       player: this.player,
       addPit: (t) => pits.set(t.x, t.y),
@@ -188,6 +224,10 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.hud = new Hud(this, this.loot, { deaths: this.deaths, attempts });
+    new LivesHud(this, this.lives);
+    // Loot taken before the checkpoint is kept (after the HUD and sack listen to it).
+    if (this.checkpoints.resumed) this.loot.restore(this.checkpoints.resumed);
+    this.hud.setTime(this.timeOffsetMs);
 
     if (TUNING.debug.enabled) {
       this.debug = new DebugOverlay(this);
@@ -206,9 +246,34 @@ export class GameScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     if (!this.fail.isOver) this.rig.update(body.velocity.x, body.velocity.y, delta, TUNING.playerVisual.animMinSpeed);
     this.loot.update(delta);
+    this.checkpoints.update();
     this.dragons.update(delta);
-    if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.time.now - this.startTime);
+    if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.runTimeMs());
     this.debug?.update(delta, this.player, this.joystick, () => this.debugLines());
+  }
+
+  /** Run time (ms), continuing from the checkpoint's time after a respawn. */
+  private runTimeMs(): number {
+    return this.timeOffsetMs + (this.startTime === null ? 0 : this.time.now - this.startTime);
+  }
+
+  /**
+   * Out of lives -> "Restart level": the attempt starts over from the very beginning.
+   * Clearing the checkpoint also drops the kept loot and the saved timer; lives refill.
+   */
+  private restartLevel(): void {
+    clearCheckpoint(this.level.id);
+    this.lives.resetToFull();
+    this.scene.restart();
+  }
+
+  /**
+   * Hook for a future extra-life pickup ('L'), shop or rewarded ad during a level.
+   * Returns how many lives were actually added (capped at TUNING.lives.max).
+   * Outside a level, use SaveData.grantLives(levelId, n) instead.
+   */
+  addLives(n: number, source: LifeSource): number {
+    return this.lives.addLives(n, source);
   }
 
   private debugLines(): string[] {
@@ -220,6 +285,8 @@ export class GameScene extends Phaser.Scene {
       this.troll.debugLine,
       this.jump.debugLine,
       this.loot.debugLine,
+      this.checkpoints.debugLine,
+      this.lives.debugLine,
       this.dragons.debugLine,
       this.noise.debugLine,
     ];
@@ -228,7 +295,10 @@ export class GameScene extends Phaser.Scene {
   private onEscape(): void {
     if (this.portals.isTeleporting || !this.fail.lock()) return;
 
-    const elapsed = this.startTime === null ? 0 : this.time.now - this.startTime;
+    const elapsed = this.runTimeMs();
+    // Escaped: the next run starts from the level start again, with full lives.
+    clearCheckpoint(this.level.id);
+    this.lives.resetToFull();
     this.player.freeze();
     this.joystick.setEnabled(false);
     this.jumpButton.setEnabled(false);

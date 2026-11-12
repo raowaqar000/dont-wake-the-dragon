@@ -232,7 +232,8 @@ export class Dragon implements NoiseListener {
     if (this.state !== 'asleep' || amount <= 0) return;
     const cap = TUNING.debug.godMode ? M.godModeCap : M.max;
     this.meterValue = Math.min(cap, this.meterValue + amount);
-    this.quietMs = 0;
+    // Faint noises (sneak steps) still count but don't hold off the drain.
+    if (amount >= M.quietBelow) this.quietMs = 0;
     this.updateStage();
   }
 
