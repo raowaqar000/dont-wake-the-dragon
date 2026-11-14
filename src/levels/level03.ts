@@ -30,12 +30,23 @@ import type { LevelData } from './types';
 //  - pair 1: (1,10) in the fake-gem room -> (1,3) in the top hall, beside the decoy exit
 //            (skips only the moving-pit gap; the exit still runs away);
 //  - pair 2: (23,31) below the gap band -> (23,26) above it, far east of the dragon.
-// Subtle trap hints (clues only, no warning signs or "!").
+// Subtle trap hints (clues only, no warning signs or "!"). Surprise traps: each dangerous
+// trap has a 30% (seeded, fixed) chance to have no clue at all; the harmless lesson traps
+// in the side nooks always keep theirs (alwaysHintTraps). `npm run validate` lists them.
 // Symbols are documented in ./types.ts. Reachability (with jumps) is checked at load.
 export const level03: LevelData = {
   id: 'level03',
   name: "The Trickster's Tunnel",
   hintLevel: 'subtle',
+  noHintChance: 0.3,
+  // Teach-before-punish lessons: never surprises.
+  alwaysHintTraps: [
+    { x: 4, y: 54 }, // fake coin in the dead-end nook off the start room
+    { x: 13, y: 44 }, // trap floor in the side pocket
+    { x: 13, y: 36 }, // pop-up spikes in the breather-room nook
+    { x: 13, y: 32 }, // falling rock on the corner tile beside the path
+    { x: 14, y: 18 }, // one-row closing wall
+  ],
   grid: [
     '#########################', // 0
     '##EEE#############eee####', // 1  decoy exit (left), real exit 'e' (right)

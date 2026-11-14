@@ -494,6 +494,23 @@ export const TUNING = {
       pebbleColor: 0x8a8296,
       pebbleAlpha: 0.95,
     },
+    /**
+     * Surprise traps (no hints): their normal tells stay, but at this basic subtle strength
+     * instead of the stronger values above.
+     */
+    subtleTells: {
+      crackAlpha: 0.55,
+      crackWidth: 1.5,
+      holeAlpha: 0.45,
+      holeRadius: 1.4,
+      rockShadowMaxAlpha: 0.65,
+      gritMinMs: 1100,
+      gritMaxMs: 2600,
+      seamAlpha: 0.7,
+      seamPx: 2,
+      pebbleShadowAlpha: 0.5,
+      pebbleAlpha: 0.8,
+    },
   },
 
   /**
@@ -504,6 +521,15 @@ export const TUNING = {
   hints: {
     /** Default when a level doesn't set hintLevel. */
     defaultLevel: 'subtle' as 'strong' | 'subtle' | 'none',
+    /**
+     * Surprise traps: each hidden trap group rolls once (seeded per level and trap, so the same
+     * traps are surprises every attempt) against LevelData.noHintChance (default below).
+     * A surprise gets no clue, no sign and no "!". LevelData.noHintTraps forces surprises,
+     * LevelData.alwaysHintTraps forbids them (wins over noHintTraps).
+     */
+    defaultNoHintChance: 0,
+    /** Part of the roll's seed; change it to reshuffle which traps are surprises in every level. */
+    surpriseSalt: 'dwtd-surprise-1',
     /** Clue textures are drawn at this multiple, shown at 1 / it. */
     textureResolution: 2,
     /** Clue size (world px, before scale) and how strongly it shows. */
@@ -1263,6 +1289,11 @@ export const TUNING = {
     buttonPressedColor: 0xc9a22a,
     /** Button ignores taps for this long after the overlay appears. */
     inputDelayMs: 350,
+    /** Gap between two stacked card buttons (px). */
+    buttonGap: 24,
+    /** ESCAPED card: button that starts the next level in the registry (hidden on the last level). */
+    nextLevelLabel: 'Next level',
+    playAgainLabel: 'Play again',
     /** Vertical gap between result lines (px). */
     lineGap: 60,
     newBestColor: '#ffd23f',
@@ -1431,8 +1462,10 @@ export const TUNING = {
 
   debug: {
     enabled: false,
-    /** Level to start (temporary, until the level select exists): 'level01' | 'level02' | 'level03'. */
-    startLevel: 'level01' as string,
+    /** URL parameter that picks the start level (e.g. ?level=level02); unknown ids fall back to startLevel. */
+    levelParam: 'level',
+    /** Level to start when there is no valid ?level= (temporary, until the level select exists): 'level01' | 'level02' | 'level03'. */
+    startLevel: 'level02' as string,
     /** Draw Arcade physics bodies (walls, player, exit). */
     showBodies: false,
     /** Traps and other fails only flash instead of ending the run (for testing layouts). */

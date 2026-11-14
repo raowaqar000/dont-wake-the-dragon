@@ -15,6 +15,8 @@ export interface HintGroup {
   tiles: TilePos[];
   /** False once the trap fired: no more danger sense for it. */
   isArmed: () => boolean;
+  /** Surprise trap (LevelData.noHintChance / noHintTraps): no clue, no sign, no "!". */
+  surprise: boolean;
 }
 
 interface GroupState extends HintGroup {
@@ -44,7 +46,8 @@ export class TrapHints {
     groups: HintGroup[],
     private readonly hintLevel: HintLevel,
   ) {
-    this.groups = groups.map((g) => ({ ...g, sensed: false }));
+    // Surprise traps are left out entirely: no clue, no sign, never sensed.
+    this.groups = groups.filter((g) => !g.surprise).map((g) => ({ ...g, sensed: false }));
     this.rng = new Phaser.Math.RandomDataGenerator([`hints-${level.cols}x${level.rows}`]);
     if (hintLevel === 'none') return;
     this.markOccupied();

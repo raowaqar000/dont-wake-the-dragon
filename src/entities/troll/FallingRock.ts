@@ -18,17 +18,26 @@ export class FallingRock {
   public readonly cx: number;
   public readonly cy: number;
   private nextGritAt: number;
+  private readonly shadowMaxAlpha: number;
+  private readonly gritMinMs: number;
+  private readonly gritMaxMs: number;
 
   constructor(
     private readonly scene: Phaser.Scene,
     public readonly tile: TilePos,
     private readonly onSlam: (rock: FallingRock) => void,
     private readonly grit: (x: number, y: number) => void,
+    /** Surprise trap: shadow and grit at the basic subtle strength (TUNING.troll.subtleTells). */
+    subtle = false,
   ) {
     const ts = TUNING.level.tileSize;
     this.cx = (tile.x + 0.5) * ts;
     this.cy = (tile.y + 0.5) * ts;
-    this.nextGritAt = scene.time.now + Phaser.Math.Between(0, RK.gritMaxMs);
+    const ST = TUNING.troll.subtleTells;
+    this.shadowMaxAlpha = subtle ? ST.rockShadowMaxAlpha : RK.shadowMaxAlpha;
+    this.gritMinMs = subtle ? ST.gritMinMs : RK.gritMinMs;
+    this.gritMaxMs = subtle ? ST.gritMaxMs : RK.gritMaxMs;
+    this.nextGritAt = scene.time.now + Phaser.Math.Between(0, this.gritMaxMs);
   }
 
   fire(): void {
@@ -43,7 +52,7 @@ export class FallingRock {
     sc.tweens.add({
       targets: shadow,
       scale: TROLL_TEXTURE_SCALE * 1.05,
-      alpha: RK.shadowMaxAlpha,
+      alpha: this.shadowMaxAlpha,
       duration: RK.shadowMs,
       ease: 'Quad.easeIn',
     });
@@ -82,7 +91,7 @@ export class FallingRock {
   /** Idle tell: grit trickles down (only called for on-screen rocks). */
   updateTell(now: number): void {
     if (this.state !== 'waiting' || now < this.nextGritAt) return;
-    this.nextGritAt = now + Phaser.Math.Between(RK.gritMinMs, RK.gritMaxMs);
+    this.nextGritAt = now + Phaser.Math.Between(this.gritMinMs, this.gritMaxMs);
     const ts = TUNING.level.tileSize;
     this.grit(this.cx + Phaser.Math.FloatBetween(-ts * 0.25, ts * 0.25), this.cy + Phaser.Math.FloatBetween(-ts * 0.25, ts * 0.25));
   }

@@ -14,7 +14,7 @@ import type { PitMap } from './PitMap';
 import type { HintLevel } from '../levels/types';
 import type { SfxSink } from './SoundSystem';
 import { TrapHints, type HintGroup } from './TrapHints';
-import { floodGroups } from './LevelParser';
+import type { SurpriseResult } from './SurpriseTraps';
 
 const TR = TUNING.troll;
 
@@ -39,6 +39,8 @@ export interface TrollTrapDeps {
   isPaused: () => boolean;
   /** Trap hint strength for this level (clues, sign, danger sense). */
   hintLevel: HintLevel;
+  /** Which hidden traps are surprises (rollSurprises): no hints, basic subtle tells. */
+  surprises: SurpriseResult;
   /** Sound effects (optional). */
   sfx?: SfxSink;
 }
@@ -71,6 +73,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
   private movingPitUsed = false;
   private fired = 0;
   private readonly hints: TrapHints;
+  private readonly surprises: SurpriseResult;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -96,10 +99,13 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     this.movingPits = level.movingPits.map((t) => new TrapFloor(scene, t, (f) => this.onDrop(f), dust));
     this.popSpikes = level.popSpikes.map((t) => new PopupSpikes(scene, t, dust));
     this.allSpikes.push(...this.popSpikes);
+    // Which hidden traps are surprises (seeded per level + trap: same every attempt).
+    this.surprises = deps.surprises;
     this.rocks = level.rocks.map(
-      (t) => new FallingRock(scene, t, (r) => this.onSlam(r), (x, y) => this.dustEmitter.explode(1, x, y)),
+      (t) =>
+        new FallingRock(scene, t, (r) => this.onSlam(r), (x, y) => this.dustEmitter.explode(1, x, y), this.isSurprise(t)),
     );
-    this.walls = level.closingWalls.map((w) => new ClosingWall(scene, w));
+    this.walls = level.closingWalls.map((w) => new ClosingWall(scene, w, this.isSurprise(w.corridor)));
     this.exitArmed = level.realExit !== null;
     this.registerAll();
     this.drawTells();
@@ -113,28 +119,48 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
    * danger-sense alert). Closing walls use their corridor's bottom row (the usual approach).
    */
   private hintGroups(): HintGroup[] {
-    const groups: HintGroup[] = [];
-    const byTile = <T extends { tile: TilePos }>(items: T[], kind: HintGroup['kind'], armed: (item: T) => boolean) => {
-      for (const tiles of floodGroups(items.map((i) => i.tile))) {
-        const members = items.filter((i) => tiles.some((t) => t.x === i.tile.x && t.y === i.tile.y));
-        groups.push({ kind, tiles, isArmed: () => members.some(armed) });
+    const on = (tiles: TilePos[], t: TilePos) => tiles.some((m) => m.x === t.x && m.y === t.y);
+    return this.surprises.groups.map((g, i) => {
+      const surprise = this.surprises.surprise[i];
+      let isArmed: () => boolean;
+      switch (g.kind) {
+        case 'floor': {
+          const floors = this.trapFloors.filter((f) => on(g.match, f.tile));
+          const pits = this.movingPits.filter((m) => on(g.match, m.tile));
+          isArmed = () => floors.some((f) => f.isArmed) || pits.some((m) => !m.dropped && !this.movingPitUsed);
+          break;
+        }
+        case 'spikes': {
+          const spikes = this.popSpikes.filter((p) => on(g.match, p.tile));
+          isArmed = () => spikes.some((p) => !p.revealed);
+          break;
+        }
+        case 'rock': {
+          const rocks = this.rocks.filter((r) => on(g.match, r.tile));
+          isArmed = () => rocks.some((r) => r.state === 'waiting');
+          break;
+        }
+        case 'walls': {
+          const wall = this.walls.find((w) => on(g.match, { x: w.spec.corridor.x, y: w.spec.corridor.y }));
+          isArmed = () => wall?.state === 'open';
+          break;
+        }
+        default: {
+          const ring = this.rings.get(key(g.tiles[0])) ?? [];
+          isArmed = () => ring.every((p) => !p.revealed);
+        }
       }
-    };
-    byTile(this.trapFloors, 'floor', (f) => f.isArmed);
-    byTile(this.movingPits, 'floor', (m) => !m.dropped && !this.movingPitUsed);
-    byTile(this.popSpikes, 'spikes', (p) => !p.revealed);
-    byTile(this.rocks, 'rock', (r) => r.state === 'waiting');
-    for (const w of this.walls) {
-      const c = w.spec.corridor;
-      const tiles: TilePos[] = [];
-      for (let x = c.x; x < c.x + c.w; x++) tiles.push({ x, y: c.y + c.h - 1 });
-      groups.push({ kind: 'walls', tiles, isArmed: () => w.state === 'open' });
+      return { kind: g.kind, tiles: g.tiles, isArmed, surprise };
+    });
+  }
+
+  /** True if the trap on this tile is a surprise (no hints; basic subtle tell). */
+  private isSurprise(t: TilePos): boolean {
+    const { groups, surprise } = this.surprises;
+    for (let i = 0; i < groups.length; i++) {
+      if (surprise[i] && groups[i].match.some((m) => m.x === t.x && m.y === t.y)) return true;
     }
-    for (const f of [...this.level.fakeCoins, ...this.level.fakeGems]) {
-      const ring = this.rings.get(key(f)) ?? [];
-      groups.push({ kind: 'fake', tiles: [f], isArmed: () => ring.every((p) => !p.revealed) });
-    }
-    return groups;
+    return false;
   }
 
   /** Closing-wall bodies, for the player collider. */
@@ -384,11 +410,19 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     const g = this.scene.add.graphics().setDepth(TR.depth);
     const rng = new Phaser.Math.RandomDataGenerator([`tells-${this.level.cols}x${this.level.rows}`]);
 
+    // Surprise traps keep their tell, at the basic subtle strength (TUNING.troll.subtleTells).
+    const ST = TR.subtleTells;
+
     // Trap floor: one thin crack.
-    g.lineStyle(TR.trapFloor.crackWidth, TR.trapFloor.crackColor, TR.trapFloor.crackAlpha);
     for (const f of this.level.trapFloors) {
       const x = f.x * ts;
       const y = f.y * ts;
+      const subtle = this.isSurprise(f);
+      g.lineStyle(
+        subtle ? ST.crackWidth : TR.trapFloor.crackWidth,
+        TR.trapFloor.crackColor,
+        subtle ? ST.crackAlpha : TR.trapFloor.crackAlpha,
+      );
       g.beginPath();
       g.moveTo(x + ts * 0.25, y + ts * rng.realInRange(0.3, 0.45));
       g.lineTo(x + ts * 0.5, y + ts * rng.realInRange(0.45, 0.6));
@@ -396,17 +430,20 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
       g.strokePath();
     }
     // Pop-up spikes: tiny pinholes.
-    g.fillStyle(TR.popSpikes.holeColor, TR.popSpikes.holeAlpha);
     const holes = [[0.3, 0.4], [0.55, 0.35], [0.45, 0.65], [0.7, 0.6]];
     for (const p of this.level.popSpikes) {
-      for (const [hx, hy] of holes) g.fillCircle((p.x + hx) * ts, (p.y + hy) * ts, TR.popSpikes.holeRadius);
+      const subtle = this.isSurprise(p);
+      g.fillStyle(TR.popSpikes.holeColor, subtle ? ST.holeAlpha : TR.popSpikes.holeAlpha);
+      const r = subtle ? ST.holeRadius : TR.popSpikes.holeRadius;
+      for (const [hx, hy] of holes) g.fillCircle((p.x + hx) * ts, (p.y + hy) * ts, r);
     }
     // Moving pit: one loose pebble.
     const MP = TR.movingPit;
     for (const m of this.level.movingPits) {
-      g.fillStyle(0x0b0a0d, MP.pebbleShadowAlpha);
+      const subtle = this.isSurprise(m);
+      g.fillStyle(0x0b0a0d, subtle ? ST.pebbleShadowAlpha : MP.pebbleShadowAlpha);
       g.fillEllipse((m.x + 0.62) * ts, (m.y + 0.42) * ts, 7, 5);
-      g.fillStyle(MP.pebbleColor, MP.pebbleAlpha);
+      g.fillStyle(MP.pebbleColor, subtle ? ST.pebbleAlpha : MP.pebbleAlpha);
       g.fillEllipse((m.x + 0.61) * ts, (m.y + 0.4) * ts, 5, 3.5);
     }
     // Runaway exit: scuff marks from the decoy door toward the real one.

@@ -4,6 +4,7 @@ import { TROLL_TEXTURE_SCALE } from './TrollTextureFactory';
 import type { LevelData } from '../levels/types';
 import { parseLevel, type ParsedLevel } from './LevelParser';
 import { validateLevel, walkSeconds } from './LevelValidator';
+import { checkSurprises, describeSurprises, rollSurprises } from './SurpriseTraps';
 import { SpikeTrap } from '../entities/SpikeTrap';
 import { ART_SCALE, artKey, hasArt } from './ArtAssets';
 import { SPIKE_LAYOUT } from './TrapTextureFactory';
@@ -71,7 +72,15 @@ export class LevelLoader {
       { coin: T.coin.value, gem: T.gem.value, chest: T.chest.value },
       { maxJumpTiles: TUNING.jump.maxJumpTiles },
     );
-    if (report.errors.length > 0) throw new Error(`[${data.id}] ${report.errors.join('; ')}`);
+    const H = TUNING.hints;
+    const surprises = rollSurprises(data, parsed, H.surpriseSalt, H.defaultNoHintChance);
+    const sc = checkSurprises(data, surprises);
+    const errors = [...report.errors, ...sc.errors];
+    if (errors.length > 0) throw new Error(`[${data.id}] ${errors.join('; ')}`);
+    for (const w of sc.warnings) console.warn(`[${data.id}] ${w}`);
+    console.info(
+      `[${data.id}] surprise traps ${surprises.surprise.filter(Boolean).length}/${surprises.groups.length}: ${describeSurprises(surprises)}`,
+    );
     const secs = (tiles: number) => walkSeconds(tiles, L.tileSize, TUNING.movement.sneakSpeed).toFixed(0);
     console.info(
       `[${data.id}] ok: shortest path ${report.shortest.length.toFixed(0)} tiles (~${secs(report.shortest.length)}s sneaking), ` +

@@ -104,6 +104,20 @@ export function grantLives(levelId: string, n: number): number {
   return next;
 }
 
+/**
+ * The level being played (memory only). Set once at startup (?level= or TUNING.debug.startLevel)
+ * and by "Next level"; retries and respawns keep it.
+ */
+let currentLevel: string | null = null;
+
+export function getCurrentLevel(): string | null {
+  return currentLevel;
+}
+
+export function setCurrentLevel(levelId: string): void {
+  currentLevel = levelId;
+}
+
 /** Attempts this session (memory only, reset when the app restarts). */
 const sessionAttempts = new Map<string, number>();
 

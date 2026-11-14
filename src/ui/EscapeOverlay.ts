@@ -16,9 +16,12 @@ export interface EscapeStats {
   deaths: number;
 }
 
-/** "ESCAPED!" screen with loot, time, gems/chests found and best loot. */
+/**
+ * "ESCAPED!" screen with loot, time, gems/chests found and best loot.
+ * With onNextLevel: "Next level" on top, "Play again" under it. Without (last level): only "Play again".
+ */
 export class EscapeOverlay {
-  constructor(scene: Phaser.Scene, stats: EscapeStats, onPlayAgain: () => void) {
+  constructor(scene: Phaser.Scene, stats: EscapeStats, onPlayAgain: () => void, onNextLevel?: () => void) {
     const lines: (string | ResultLine)[] = [
       { text: `Loot: ${stats.loot}`, color: TUNING.hud.lootColor, bold: true, fontSize: 56 },
       `Time: ${(stats.timeMs / 1000).toFixed(1)}s`,
@@ -28,12 +31,18 @@ export class EscapeOverlay {
         ? { text: 'NEW BEST!', color: TUNING.overlay.newBestColor, bold: true, fontSize: 56, pulse: true }
         : { text: `Best: ${stats.previousBest}`, color: '#bbbbbb', fontSize: 40 },
     ];
+    const O = TUNING.overlay;
     new ResultOverlay(scene, {
       title: 'ESCAPED!',
       titleColor: '#ffe7a3',
       lines,
-      buttonLabel: 'Play again',
-      onPress: onPlayAgain,
+      ...(onNextLevel
+        ? {
+            buttonLabel: O.nextLevelLabel,
+            onPress: onNextLevel,
+            secondaryButton: { label: O.playAgainLabel, onPress: onPlayAgain },
+          }
+        : { buttonLabel: O.playAgainLabel, onPress: onPlayAgain }),
     });
   }
 }

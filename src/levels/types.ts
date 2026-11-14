@@ -204,6 +204,17 @@ export interface LevelData {
   hintLevel?: HintLevel;
   /** Spike timing preset for every '^' group (default 'normal'); spikeOverrides still win. */
   spikeTiming?: SpikeTiming;
+  /**
+   * Chance (0..1) that a hidden troll trap group is a "surprise": no clue, no sign, no "!"
+   * (its normal tell stays, at basic subtle strength). Rolled once per trap with a seed from
+   * the level id and the trap, so the same traps are surprises on every attempt.
+   * Default TUNING.hints.defaultNoHintChance.
+   */
+  noHintChance?: number;
+  /** Traps that are always surprises (any tile of the trap; a closing wall: any corridor tile). */
+  noHintTraps?: readonly TileRef[];
+  /** Traps that are never surprises (e.g. harmless lesson traps). Wins over noHintTraps. */
+  alwaysHintTraps?: readonly TileRef[];
   spikeOverrides?: readonly SpikeOverride[];
   treasureOnTiles?: readonly TreasureOnTile[];
   dragonOverrides?: readonly DragonOverride[];

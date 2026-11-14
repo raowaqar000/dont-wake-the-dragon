@@ -20,6 +20,7 @@ export const level02: LevelData = {
   id: 'level02',
   name: 'The Deep Warren',
   hintLevel: 'strong',
+  noHintChance: 0,
   spikeTiming: 'slow',
   grid: [
     '##EEE####################', // 0  exit (top-left)

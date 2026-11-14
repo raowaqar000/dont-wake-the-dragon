@@ -25,6 +25,8 @@ export interface ResultOverlayOptions {
   buttonWidth?: number;
   buttonHeight?: number;
   buttonFontSize?: number;
+  /** Optional second button stacked under the main one (same size, same tap safety). */
+  secondaryButton?: { label: string; onPress: () => void };
 }
 
 /**
@@ -83,23 +85,30 @@ export class ResultOverlay {
     const bh = opts.buttonHeight ?? O.buttonHeight;
     const lastLineY = cy - 90 + Math.max(0, lines.length - 1) * O.lineGap;
     const buttonY = Math.max(cy + 120, lastLineY + 40 + bh / 2);
-    const button = scene.add
-      .rectangle(cx, buttonY, bw, bh, O.buttonColor)
-      .setStrokeStyle(4, 0xffffff, 0.8);
-    const label = scene.add
-      .text(cx, buttonY, opts.buttonLabel, {
-        fontFamily: 'sans-serif',
-        fontSize: `${opts.buttonFontSize ?? 52}px`,
-        fontStyle: 'bold',
-        color: '#1a1406',
-      })
-      .setOrigin(0.5);
-    objects.push(button, label);
+    const makeButton = (y: number, text: string) => {
+      const rect = scene.add.rectangle(cx, y, bw, bh, O.buttonColor).setStrokeStyle(4, 0xffffff, 0.8);
+      const label = scene.add
+        .text(cx, y, text, {
+          fontFamily: 'sans-serif',
+          fontSize: `${opts.buttonFontSize ?? 52}px`,
+          fontStyle: 'bold',
+          color: '#1a1406',
+        })
+        .setOrigin(0.5);
+      if (label.width > bw - 20) label.setScale((bw - 20) / label.width);
+      objects.push(rect, label);
+      return { rect, label };
+    };
+    const buttons = [{ ...makeButton(buttonY, opts.buttonLabel), onPress: opts.onPress }];
+    if (opts.secondaryButton) {
+      const b = opts.secondaryButton;
+      buttons.push({ ...makeButton(buttonY + bh + O.buttonGap, b.label), onPress: b.onPress });
+    }
 
     for (const o of objects) {
       o.setScrollFactor(0).setDepth(O.depth);
     }
-    label.setDepth(O.depth + 1);
+    for (const b of buttons) b.label.setDepth(O.depth + 1);
     markUi(scene, ...objects);
 
     for (const t of pulsing) {
@@ -113,25 +122,28 @@ export class ResultOverlay {
       });
     }
 
-    // Only a tap that *starts* on the button counts, so a finger still held from
-    // the joystick can't trigger it by lifting. Small delay avoids accidental taps.
-    let armed = false;
+    // Only a tap that *starts* on a button counts, so a finger still held from the joystick
+    // can't trigger it by lifting. Small delay avoids accidental taps. One shared `pressed`
+    // flag: only one button action can ever fire per card.
     let pressed = false;
     scene.time.delayedCall(O.inputDelayMs, () => {
-      button.setInteractive({ useHandCursor: false });
-      button.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-        armed = true;
-        button.setFillStyle(O.buttonPressedColor);
-      });
-      button.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
-        armed = false;
-        button.setFillStyle(O.buttonColor);
-      });
-      button.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
-        if (!armed || pressed) return;
-        pressed = true;
-        opts.onPress();
-      });
+      for (const { rect, onPress } of buttons) {
+        let armed = false;
+        rect.setInteractive({ useHandCursor: false });
+        rect.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+          armed = true;
+          rect.setFillStyle(O.buttonPressedColor);
+        });
+        rect.on(Phaser.Input.Events.GAMEOBJECT_POINTER_OUT, () => {
+          armed = false;
+          rect.setFillStyle(O.buttonColor);
+        });
+        rect.on(Phaser.Input.Events.GAMEOBJECT_POINTER_UP, () => {
+          if (!armed || pressed) return;
+          pressed = true;
+          onPress();
+        });
+      }
     });
   }
 }

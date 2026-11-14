@@ -3,11 +3,13 @@ import { SCENE_KEYS, TUNING } from '../config';
 import { Player } from '../entities/Player';
 import { PlayerVisual } from '../entities/PlayerVisual';
 import { ExitZone } from '../entities/ExitZone';
-import { getLevel } from '../levels';
+import { getLevel, nextLevelId } from '../levels';
+import { currentLevelId, goToLevel } from '../systems/LevelSelect';
 import type { LevelData } from '../levels/types';
 import { CameraRig } from '../systems/CameraRig';
 import { JUMP_EVENTS, JumpSystem, type JumpTakeoff } from '../systems/JumpSystem';
-import { applyTrapVariants } from '../systems/LevelParser';
+import { applyTrapVariants, parseLevel } from '../systems/LevelParser';
+import { rollSurprisesFor } from '../systems/SurpriseTraps';
 import { PitMap } from '../systems/PitMap';
 import { TROLL_EVENTS, TrollTrapSystem } from '../systems/TrollTrapSystem';
 import { SoundSystem } from '../systems/SoundSystem';
@@ -74,8 +76,8 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => sfx.setSnore(0));
     const haptics = new HapticsService();
 
-    // Temporary level switch (TUNING.debug.startLevel) until the level select exists.
-    const base = getLevel(TUNING.debug.startLevel);
+    // Level: ?level= on first start, else TUNING.debug.startLevel; then kept across restarts (LevelSelect).
+    const base = getLevel(currentLevelId());
     const attempts = startAttempt(base.id);
     this.deaths = loadDeaths(base.id);
     // Optional per-level trap shuffle between attempts (off unless the level sets varyTraps).
@@ -240,6 +242,14 @@ export class GameScene extends Phaser.Scene {
       onFloorDropped: (tile) => this.loot.onFloorCollapsed(tile),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
       hintLevel: this.level.hintLevel ?? TUNING.hints.defaultLevel,
+      // Surprise traps (no hints), rolled on the authored layout so they match every attempt.
+      surprises: rollSurprisesFor(
+        base,
+        base === this.level ? built.parsed : parseLevel(base),
+        built.parsed,
+        TUNING.hints.surpriseSalt,
+        TUNING.hints.defaultNoHintChance,
+      ),
       sfx,
     });
     this.physics.add.collider(this.player, this.troll.wallBodies);
@@ -362,6 +372,8 @@ export class GameScene extends Phaser.Scene {
     const previousBest = loadBestLoot(this.level.id);
     const newBest = loot > previousBest;
     if (newBest) saveBestLoot(this.level.id, loot);
+    // "Next level" only when there is one (hidden on the last level).
+    const next = nextLevelId(this.level.id);
 
     new EscapeOverlay(
       this,
@@ -377,6 +389,12 @@ export class GameScene extends Phaser.Scene {
         deaths: this.deaths,
       },
       () => this.scene.restart(),
+      next
+        ? () => {
+            goToLevel(next);
+            this.scene.restart();
+          }
+        : undefined,
     );
   }
 }

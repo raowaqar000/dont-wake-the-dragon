@@ -9,6 +9,7 @@ const { TUNING } = await import('../src/config.ts');
 const { LEVELS } = await import('../src/levels/index.ts');
 const { parseLevel } = await import('../src/systems/LevelParser.ts');
 const { validateLevel, walkSeconds } = await import('../src/systems/LevelValidator.ts');
+const { rollSurprises, checkSurprises, describeSurprises } = await import('../src/systems/SurpriseTraps.ts');
 
 const T = TUNING.treasure;
 const ts = TUNING.level.tileSize;
@@ -30,14 +31,19 @@ for (const level of LEVELS) {
     { maxJumpTiles: TUNING.jump.maxJumpTiles },
   );
   const t = r.treasure;
+  const H = TUNING.hints;
+  const s = rollSurprises(level, parsed, H.surpriseSalt, H.defaultNoHintChance);
+  const sc = checkSurprises(level, s);
+  const errors = [...r.errors, ...sc.errors];
   const head = `${level.id} "${level.name}" ${parsed.cols}x${parsed.rows}`;
-  if (r.errors.length > 0) {
+  if (errors.length > 0) {
     failed++;
     console.error(`✗ ${head}`);
-    for (const e of r.errors) console.error(`    - ${e}`);
+    for (const e of errors) console.error(`    - ${e}`);
     continue;
   }
   console.log(`✓ ${head}`);
+  for (const w of sc.warnings) console.warn(`    ! warning: ${w}`);
   console.log(
     `    path ${r.shortest.length.toFixed(0)} tiles (~${secs(r.shortest.length)}s sneaking), ` +
       `${r.shortestCollapsed.length.toFixed(0)} with every floor trap dropped`,
@@ -46,6 +52,12 @@ for (const level of LEVELS) {
   console.log(
     `    dragons ${parsed.dragons.length}, checkpoints ${parsed.checkpoints.length}, portal pairs ${parsed.portals.length}, ` +
       `hints ${level.hintLevel ?? TUNING.hints.defaultLevel}, spikes ${parsed.spikeTiming}`,
+  );
+  const surprises = s.surprise.filter(Boolean).length;
+  console.log(
+    `    surprise traps ${surprises}/${s.groups.length} hidden trap groups ` +
+      `(chance ${level.noHintChance ?? H.defaultNoHintChance}, forced ${s.forced}, always hinted ${s.protectedCount}): ` +
+      describeSurprises(s),
   );
   r.fromCheckpoints.forEach((p, i) => {
     const c = parsed.checkpoints[i];

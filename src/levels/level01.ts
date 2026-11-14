@@ -20,6 +20,8 @@ export const level01: LevelData = {
   id: 'level01',
   name: 'The Sleepy Hollow',
   hintLevel: 'strong',
+  // Tutorial: every trap keeps its hints.
+  noHintChance: 0,
   spikeTiming: 'slow',
   grid: [
     '##EEE##########', // 0  exit (top-left)
