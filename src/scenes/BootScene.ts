@@ -7,6 +7,7 @@ import { createTrapTextures } from '../systems/TrapTextureFactory';
 import { createTreasureTextures } from '../systems/TreasureTextureFactory';
 import { createTrollTextures } from '../systems/TrollTextureFactory';
 import { createUiTextures } from '../systems/UiTextureFactory';
+import { createHintTextures } from '../systems/HintTextureFactory';
 
 /**
  * Loads the painted art (with a loading bar), builds the code-drawn textures
@@ -34,6 +35,7 @@ export class BootScene extends Phaser.Scene {
     createDragonTextures(this);
     createTrollTextures(this);
     createUiTextures(this);
+    createHintTextures(this);
     this.scene.start(SCENE_KEYS.game);
   }
 

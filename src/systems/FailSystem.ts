@@ -4,6 +4,7 @@ import type { Player } from '../entities/Player';
 import type { PlayerVisual } from '../entities/PlayerVisual';
 import type { Joystick } from '../ui/Joystick';
 import { ResultOverlay, type ResultLine } from '../ui/ResultOverlay';
+import type { SfxSink } from './SoundSystem';
 
 const F = TUNING.fail;
 
@@ -59,6 +60,8 @@ export interface FailSystemDeps {
   onRestartLevel: () => void;
   /** Quick trap death with lives left: short "-1 heart" pop over the hero. */
   onLifeLostPop?: () => void;
+  /** Sound effects (optional): hero hit / fall, game over. */
+  sfx?: SfxSink;
 }
 
 /**
@@ -168,6 +171,7 @@ export class FailSystem {
 
   /** OUT OF LIVES card with a big "Restart level" button (same tap safety as every card). */
   private openGameOver(): void {
+    this.deps.sfx?.play('gameOver');
     const L = TUNING.lives;
     const r = FAIL_REASONS.outOfLives;
     new ResultOverlay(this.scene, {
@@ -189,6 +193,7 @@ export class FailSystem {
       visual.char(F.charColor, F.charMs);
       return;
     }
+    this.deps.sfx?.play(effect.kind === 'fall' ? 'heroFall' : 'heroHit');
     camera.flash(F.flashMs, c.r, c.g, c.b);
     camera.shake(F.shakeMs, F.shakeIntensity);
     if (effect.kind === 'fall') {

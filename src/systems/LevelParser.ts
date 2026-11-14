@@ -6,6 +6,7 @@ import {
   type DragonFacing,
   type DragonOrientation,
   type LevelData,
+  type SpikeTiming,
 } from '../levels/types';
 
 /**
@@ -77,6 +78,8 @@ export interface ParsedLevel {
   trapLinks: { from: TilePos; to: TilePos[] }[];
   /** 'F' checkpoint tiles (walkable floor), in grid order. */
   checkpoints: TilePos[];
+  /** Spike timing preset for the level (LevelData.spikeTiming). */
+  spikeTiming: SpikeTiming;
 }
 
 /**
@@ -231,6 +234,7 @@ export function parseLevel(data: LevelData): ParsedLevel {
     realExitTiles,
     trapLinks: (data.trapLinks ?? []).map((l) => ({ from: { x: l.from.x, y: l.from.y }, to: l.to.map((t) => ({ x: t.x, y: t.y })) })),
     checkpoints,
+    spikeTiming: data.spikeTiming ?? 'normal',
   };
 }
 
@@ -307,7 +311,7 @@ export function applyTrapVariants(data: LevelData, attempt: number): LevelData {
 }
 
 /** 4-way flood fill of touching tiles. */
-function floodGroups(tiles: TilePos[]): TilePos[][] {
+export function floodGroups(tiles: TilePos[]): TilePos[][] {
   const key = (t: TilePos) => `${t.x},${t.y}`;
   const remaining = new Map(tiles.map((t) => [key(t), t]));
   const groups: TilePos[][] = [];

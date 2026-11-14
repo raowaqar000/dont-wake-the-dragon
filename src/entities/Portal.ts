@@ -7,7 +7,9 @@ const PA = TUNING.art.portal;
 
 /**
  * One end of a portal pair and a soft glow drawn above the darkness so it shows from afar.
- * Painted art: the stone portal image, a spinning swirl and a thin glow ring in the pair's color.
+ * Every portal looks exactly the same (TUNING.portals.color, no pair colors or rings): the
+ * player only finds out where one leads by stepping in.
+ * Painted art: the stone portal image and a spinning swirl.
  * Code-drawn fallback: dark ring on the floor and two counter-spinning swirls.
  * PortalSystem owns the teleport logic; this is the visual + arm state.
  */
@@ -20,18 +22,17 @@ export class Portal {
 
   private readonly scene: Phaser.Scene;
   private readonly swirls: Phaser.GameObjects.Image[];
-  /** Painted art: the stone portal (pulses on burst) and the pair-colored ring. */
+  /** Painted art: the stone portal (pulses on burst). */
   private readonly artImage?: Phaser.GameObjects.Image;
-  private readonly artRing?: Phaser.GameObjects.Graphics;
 
   constructor(
     scene: Phaser.Scene,
     public readonly x: number,
     public readonly y: number,
-    public readonly color: number,
   ) {
     this.scene = scene;
     const size = P.swirlSize;
+    const color = P.color;
 
     if (hasArt(scene, 'portal')) {
       this.artImage = scene.add
@@ -39,8 +40,7 @@ export class Portal {
         .setScale(ART_SCALE * PA.displayScale)
         .setDepth(P.depth - 1);
       const w = this.artImage.displayWidth;
-      const h = this.artImage.displayHeight;
-      // Spinning swirl in the pair's color, flattened (by its container) to match the oval.
+      // Spinning swirl, flattened (by its container) to match the oval.
       const swirl = scene.add
         .image(0, 0, TEXTURE_KEYS.portalSwirl)
         .setDisplaySize(w * PA.swirlScale, w * PA.swirlScale)
@@ -50,13 +50,6 @@ export class Portal {
       scene.add.container(x, y, [swirl]).setScale(1, PA.swirlFlatten).setDepth(P.depth);
       scene.tweens.add({ targets: swirl, angle: 360, duration: P.swirlSpinMs, repeat: -1 });
       this.swirls = [swirl];
-      // Thin glow ring in the pair's color, above the darkness so pairs read from afar.
-      this.artRing = scene.add
-        .graphics({ x, y })
-        .setBlendMode(Phaser.BlendModes.ADD)
-        .setDepth(TUNING.lighting.depth + 1);
-      this.artRing.lineStyle(PA.ringWidth, color, PA.ringAlpha);
-      this.artRing.strokeEllipse(0, 0, w * PA.ringScale * 2, h * PA.ringScale * 2 * PA.swirlFlatten);
       this.addGlow(scene, x, y, color);
       return;
     }
@@ -112,7 +105,6 @@ export class Portal {
     this.rearmAt = rearmAt;
     if (this.artImage) {
       this.swirls[0].setAlpha(PA.swirlAlpha * (armed ? 1 : P.disarmedAlpha));
-      this.artRing?.setAlpha(armed ? 1 : P.disarmedAlpha);
       return;
     }
     this.swirls[0].setAlpha(armed ? 1 : P.disarmedAlpha);
@@ -124,9 +116,9 @@ export class Portal {
       .graphics({ x: this.x, y: this.y })
       .setDepth(TUNING.lighting.depth + 2)
       .setBlendMode(Phaser.BlendModes.ADD);
-    ring.lineStyle(6, this.color, 1);
+    ring.lineStyle(6, P.color, 1);
     ring.strokeCircle(0, 0, P.swirlSize * 0.5);
-    ring.fillStyle(this.color, 0.35);
+    ring.fillStyle(P.color, 0.35);
     ring.fillCircle(0, 0, P.swirlSize * 0.5);
     ring.setScale(0.4);
     this.scene.tweens.add({

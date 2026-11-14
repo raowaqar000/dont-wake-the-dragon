@@ -11,6 +11,10 @@ import { FAIL_REASONS, type FailEffect, type FailReason } from './FailSystem';
 import type { JumpTakeoff } from './JumpSystem';
 import type { ParsedLevel, TilePos } from './LevelParser';
 import type { PitMap } from './PitMap';
+import type { HintLevel } from '../levels/types';
+import type { SfxSink } from './SoundSystem';
+import { TrapHints, type HintGroup } from './TrapHints';
+import { floodGroups } from './LevelParser';
 
 const TR = TUNING.troll;
 
@@ -19,6 +23,8 @@ export type TrollKind = 'trapFloor' | 'popSpikes' | 'rock' | 'closingWall' | 'fa
 export const TROLL_EVENTS = {
   /** A troll trap fired. Payload: { kind: TrollKind, x, y } (tile). */
   triggered: 'troll-triggered',
+  /** Danger sense ('strong' hints): the hero came near an untriggered hidden trap. Payload: TilePos. */
+  sensed: 'troll-sensed',
 } as const;
 
 export interface TrollTrapDeps {
@@ -31,6 +37,10 @@ export interface TrollTrapDeps {
   /** A floor tile dropped (treasure on it is lost). */
   onFloorDropped?: (tile: TilePos) => void;
   isPaused: () => boolean;
+  /** Trap hint strength for this level (clues, sign, danger sense). */
+  hintLevel: HintLevel;
+  /** Sound effects (optional). */
+  sfx?: SfxSink;
 }
 
 type FadeObj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.AlphaSingle;
@@ -60,6 +70,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
   private exitArmed: boolean;
   private movingPitUsed = false;
   private fired = 0;
+  private readonly hints: TrapHints;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -93,7 +104,37 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     this.registerAll();
     this.drawTells();
     this.drawFakeWalls();
+    this.hints = new TrapHints(scene, level, this.hintGroups(), deps.hintLevel);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.removeAllListeners());
+  }
+
+  /**
+   * Hidden traps for TrapHints: touching tiles of one kind form one group (one clue, one
+   * danger-sense alert). Closing walls use their corridor's bottom row (the usual approach).
+   */
+  private hintGroups(): HintGroup[] {
+    const groups: HintGroup[] = [];
+    const byTile = <T extends { tile: TilePos }>(items: T[], kind: HintGroup['kind'], armed: (item: T) => boolean) => {
+      for (const tiles of floodGroups(items.map((i) => i.tile))) {
+        const members = items.filter((i) => tiles.some((t) => t.x === i.tile.x && t.y === i.tile.y));
+        groups.push({ kind, tiles, isArmed: () => members.some(armed) });
+      }
+    };
+    byTile(this.trapFloors, 'floor', (f) => f.isArmed);
+    byTile(this.movingPits, 'floor', (m) => !m.dropped && !this.movingPitUsed);
+    byTile(this.popSpikes, 'spikes', (p) => !p.revealed);
+    byTile(this.rocks, 'rock', (r) => r.state === 'waiting');
+    for (const w of this.walls) {
+      const c = w.spec.corridor;
+      const tiles: TilePos[] = [];
+      for (let x = c.x; x < c.x + c.w; x++) tiles.push({ x, y: c.y + c.h - 1 });
+      groups.push({ kind: 'walls', tiles, isArmed: () => w.state === 'open' });
+    }
+    for (const f of [...this.level.fakeCoins, ...this.level.fakeGems]) {
+      const ring = this.rings.get(key(f)) ?? [];
+      groups.push({ kind: 'fake', tiles: [f], isArmed: () => ring.every((p) => !p.revealed) });
+    }
+    return groups;
   }
 
   /** Closing-wall bodies, for the player collider. */
@@ -141,8 +182,19 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     this.firers.set(key(t), () => {
       this.fired++;
       this.emit(TROLL_EVENTS.triggered, { kind, x: t.x, y: t.y });
+      this.playFireSound(kind);
       fire();
     });
+  }
+
+  /** Sound when a trap fires (drops and slams have their own, in onDrop / onSlam). */
+  private playFireSound(kind: TrollKind): void {
+    const sfx = this.deps.sfx;
+    if (!sfx) return;
+    if (kind === 'popSpikes') sfx.play('spikesUp');
+    else if (kind === 'rock') sfx.play('rockFall');
+    else if (kind === 'trapFloor') sfx.play('crumble');
+    else if (kind === 'fakeTreasure') sfx.play('fakeTreasure');
   }
 
   /** Fires the trap at `t` and everything linked to it (each trap once per chain). */
@@ -185,7 +237,9 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
   private onDrop(f: TrapFloor): void {
     this.deps.pits.set(f.tile.x, f.tile.y);
     this.deps.onFloorDropped?.(f.tile);
+    this.hints.onFloorDropped(f.tile);
     this.deps.onNoise(f.cx, f.cy, TUNING.noise.floorDrop);
+    this.deps.sfx?.play('floorDrop');
   }
 
   private onSlam(r: FallingRock): void {
@@ -194,6 +248,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     this.dustEmitter.explode(TR.rock.slamDust, r.cx, r.cy);
     camera.shake(TR.rock.shakeMs, TR.rock.shakeIntensity);
     this.deps.onNoise(r.cx, r.cy, TUNING.noise.rockSlam);
+    this.deps.sfx?.play('rockSlam');
     if (!this.deps.isPaused() && r.contains(player.x, player.y, TUNING.traps.hitInset)) {
       this.deps.onCaught(FAIL_REASONS.crushed, { kind: 'crush' });
     }
@@ -239,7 +294,10 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     const { player } = this.deps;
     for (const p of this.allSpikes) p.update(now);
     for (const w of this.walls) {
-      if (w.update(now)) this.deps.onNoise(w.rect.centerX, w.rect.centerY, TUNING.noise.wallsClose);
+      if (w.update(now)) {
+        this.deps.onNoise(w.rect.centerX, w.rect.centerY, TUNING.noise.wallsClose);
+        this.deps.sfx?.play('wallsClose');
+      }
     }
     this.updateTells(now);
     this.updateFakeWalls(deltaMs);
@@ -252,7 +310,12 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     const tile = this.tileIndex(player.x, player.y);
     if (tile !== this.lastTile) {
       this.lastTile = tile;
-      this.checkTriggers(tile % this.level.cols, Math.floor(tile / this.level.cols));
+      const tx = tile % this.level.cols;
+      const ty = Math.floor(tile / this.level.cols);
+      // Danger sense first, so the "!" shows even when the same step fires the trap.
+      const sensed = this.hints.check(tx, ty);
+      if (sensed) this.emit(TROLL_EVENTS.sensed, sensed);
+      this.checkTriggers(tx, ty);
     }
 
     // Hits. Spikes can't reach you in the air; closing walls can.
@@ -322,7 +385,7 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     const rng = new Phaser.Math.RandomDataGenerator([`tells-${this.level.cols}x${this.level.rows}`]);
 
     // Trap floor: one thin crack.
-    g.lineStyle(1.5, TR.trapFloor.crackColor, TR.trapFloor.crackAlpha);
+    g.lineStyle(TR.trapFloor.crackWidth, TR.trapFloor.crackColor, TR.trapFloor.crackAlpha);
     for (const f of this.level.trapFloors) {
       const x = f.x * ts;
       const y = f.y * ts;
@@ -336,13 +399,14 @@ export class TrollTrapSystem extends Phaser.Events.EventEmitter {
     g.fillStyle(TR.popSpikes.holeColor, TR.popSpikes.holeAlpha);
     const holes = [[0.3, 0.4], [0.55, 0.35], [0.45, 0.65], [0.7, 0.6]];
     for (const p of this.level.popSpikes) {
-      for (const [hx, hy] of holes) g.fillCircle((p.x + hx) * ts, (p.y + hy) * ts, 1.4);
+      for (const [hx, hy] of holes) g.fillCircle((p.x + hx) * ts, (p.y + hy) * ts, TR.popSpikes.holeRadius);
     }
     // Moving pit: one loose pebble.
+    const MP = TR.movingPit;
     for (const m of this.level.movingPits) {
-      g.fillStyle(0x0b0a0d, 0.5);
+      g.fillStyle(0x0b0a0d, MP.pebbleShadowAlpha);
       g.fillEllipse((m.x + 0.62) * ts, (m.y + 0.42) * ts, 7, 5);
-      g.fillStyle(0x8a8296, 0.8);
+      g.fillStyle(MP.pebbleColor, MP.pebbleAlpha);
       g.fillEllipse((m.x + 0.61) * ts, (m.y + 0.4) * ts, 5, 3.5);
     }
     // Runaway exit: scuff marks from the decoy door toward the real one.

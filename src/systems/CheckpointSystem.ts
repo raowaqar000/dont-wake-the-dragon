@@ -17,6 +17,8 @@ export interface CheckpointSystemDeps {
   runTimeMs: () => number;
   /** While true nothing is reached (teleport, run over). */
   isPaused: () => boolean;
+  /** A new checkpoint was just reached (sound hook). */
+  onReached?: (tile: TilePos) => void;
 }
 
 /**
@@ -91,6 +93,7 @@ export class CheckpointSystem {
     this.keptLoot = this.deps.loot.loot;
     this.fx.sparkle(f.x, f.y - 10, CP.sparkles, CP.sparkleTint);
     this.fx.floatText(f.x, f.y - 26, CP.text, CP.textColor, CP.fontSize);
+    this.deps.onReached?.(f.tile);
     console.info(`[checkpoint] ${f.tile.x},${f.tile.y} saved`);
   }
 }

@@ -1,91 +1,62 @@
 import type { LevelData } from './types';
 
-// 25 x 60 tiles (1200 x 2880 px at 48px). Start at the bottom, exit at the top-left.
-// Every band has a short risky route and a longer safe one (loops), and a sealed
-// vault in the middle is only reachable through portal 1 (portal 2 leads on).
-// Reachability and shortest path are checked at load by LevelValidator.
-// Treasure follows risk vs reward: safe routes carry a few coins, risky routes
-// (spike gauntlet, crumbling bridge, top squeeze, vault, dead ends) carry the gems and chests.
-// Five sleeping dragons (3x2 'D') sit next to the best loot, never near the start:
-//  - hoard pocket: open the chest right beside it (chest noise is the risk);
-//  - upper hall: on the exit route; sneak the top row or keep the pillar between you;
-//  - vault: every tile is close, so it can only be passed by sneaking;
-//  - great hall west and north-east: the open hall tempts you to run; pillars dampen noise.
-// Two checkpoints 'F': entering the great hall (row 36) and the upper hall (row 14).
-// Symbols are documented in ./types.ts.
+// 15 x 34 tiles. "The Sleepy Hollow": the tutorial. Start at the bottom, exit top-left.
+// Wide 3-tile paths, one lesson at a time, a breather between each (bottom to top):
+//  - rows 25-28: hall 1, sneaking past a dragon: it lies on the left, the path to the
+//                corridor runs 2-3 tiles to its right (sneak steps can't reach it);
+//  - row 23:     one row of spikes on slow timing (spikeTiming 'slow'); a breather after;
+//  - row 20:     one crumbling tile in the middle of the path (a coin on it as the lure;
+//                the sides stay solid);
+//  - row 18:     checkpoint (halfway);
+//  - row 16:     a 1-tile gap across the corridor: jump it;
+//  - rows 14-15: a closed room: the only way on is the portal (11,14) -> (10,11);
+//                the chest sits in the far corner, far from any dragon;
+//  - row 8:      one trap floor in the middle of the corridor, with a very clear hint
+//                (cracked ring, warning sign, "!" danger sense): walk the sides;
+//  - rows 1-6:   hall 2, a second dragon on the right; the exit is top-left, away from it.
+//                Gem behind its tail and a coin under it for the brave (sneak only).
+// Target: a new player escapes in 1-2 attempts. Symbols are documented in ./types.ts.
 export const level01: LevelData = {
   id: 'level01',
-  name: 'The Deep Warren',
+  name: 'The Sleepy Hollow',
+  hintLevel: 'strong',
+  spikeTiming: 'slow',
   grid: [
-    '##EEE####################', // 0  exit (top-left)
-    '#...c.###################', // 1  exit antechamber
-    '#..#..###################', // 2
-    '#.c...##########DDD..####', // 3  hoard dragon (pocket widened)
-    '###.############DDD.T####', // 4  hidden chest pocket: chest next to a sleeping dragon
-    '###.############.....####', // 5
-    '#...#...#...#.g.#...#...#', // 6  top squeeze tunnel, zig-zags right to left
-    '#g#...#.g.#...#...#...#.#', // 7
-    '#######################.#', // 8  only the right corner leads up
-    '#.......................#', // 9  upper hall (ring around a pillar)
-    '#..##.....#####.....##.c#', // 10
-    '#.........#####.DDD.....#', // 11 upper hall dragon (east of the pillar)
-    '#..##.....#####.DDD.##c.#', // 12
-    '#...............c.......#', // 13
-    '#.F..c....c.............#', // 14 checkpoint 2: entering the upper hall
-    '#.#2#####################', // 15 entrance (left), portal 2 alcove
-    '#....c....-..c..-...c...#', // 16 north lane: safe but longer; two 1-tile gaps to hop (optional shortcuts)
-    '#.#######...###...#####.#', // 17
-    '#.#####################.#', // 18 west squeeze, right shaft
-    '#.#######.c.T...#######.#', // 19 sealed vault (portals only)
-    '#.#######..1...c#######c#', // 20
-    '#.#######.DDD2..#######.#', // 21 vault dragon
-    '#.#######cDDD..g#######.#', // 22
-    '#.#####################.#', // 23
-    '#...T..%%%%%.c.......##c#', // 24 south lane: crumbling bridge, short but risky
-    '#.c....%%%%%....c....##.#', // 25
-    '####################.##.#', // 26
-    '#..............DDDc..c..#', // 27 great hall: NE dragon guards the climb to the bridge
-    '#..###....#####DDD.###..#', // 28
-    '#..###....#####....###..#', // 29
-    '#..............c.......c#', // 30
-    '#....##....###....##....#', // 31
-    '#....##DDD.###....##....#', // 32 west dragon
-    '#......DDD..c...........#', // 33
-    '#..###....#####....###..#', // 34
-    '#..###...c.........###..#', // 35
-    '#.F..c..................#', // 36 checkpoint 1: entering the great hall
-    '##.###################.##', // 37 entrance (left), portal pocket (right)
-    '##.#################.cc##', // 38
-    '##.#################1####', // 39
-    '#.........c.........#####', // 40 lower junction
-    '#c###############.c.#####', // 41 west squeeze snake, east spike gauntlet
-    '#.......#########^^^#####', // 42
-    '#######.#########.g.#####', // 43
-    '#...c...#########..c#####', // 44
-    '#.###############^^^#####', // 45
-    '#.......#########.g.#####', // 46
-    '#######.#########c..#####', // 47
-    '#...c...#########^^^#####', // 48
-    '#.###############...#####', // 49
-    '#.###############.c.#####', // 50
-    '#..c..............c.....#', // 51 start chamber
-    '#...##......#......##...#', // 52
-    '#...##..c...c...c..##...#', // 53
-    '#.......................#', // 54
-    '#...........P...........#', // 55
-    '#.......................#', // 56
-    '##.....................##', // 57
-    '####.................####', // 58
-    '#########################', // 59
+    '##EEE##########', // 0  exit (top-left)
+    '#.....#########', // 1
+    '#..c....c######', // 2
+    '#.c..........##', // 3
+    '#.........DDDg#', // 4  hall 2 dragon (right), gem behind its tail
+    '#..c......DDD.#', // 5
+    '#.....c.....c.#', // 6  coin right under the dragon (sneak!)
+    '#####...#######', // 7
+    '#####.t.#######', // 8  trap floor (middle): walk the sides
+    '#####...#######', // 9
+    '#####...#######', // 10 warning sign goes here
+    '###.c..g..1.###', // 11 portal arrival room
+    '###..c...c..###', // 12
+    '###############', // 13 solid: only the portal leads on
+    '#cT...c....1..#', // 14 portal room; chest in the far corner
+    '#.c.......c...#', // 15
+    '######---######', // 16 1-tile gap: jump it
+    '######...######', // 17
+    '###..c..F...###', // 18 checkpoint (halfway)
+    '###.......c.###', // 19
+    '######.%.######', // 20 one crumbling tile (coin on it)
+    '######...######', // 21
+    '####..c.c..####', // 22 breather
+    '######^^^######', // 23 one spike group, slow timing
+    '######...######', // 24
+    '#...........c.#', // 25 hall 1: sneak past the dragon on the left
+    '#.DDD.......g.#', // 26
+    '#.DDD....c..c.#', // 27
+    '#.c...........#', // 28
+    '#######...#####', // 29
+    '##.c.........##', // 30 start room
+    '##.....P.....##', // 31
+    '##..c.....c..##', // 32
+    '###############', // 33
   ],
-  // Gems on the crumbling bridge: grab them before the floor gives way.
-  treasureOnTiles: [
-    { x: 8, y: 24, kind: 'gem' },
-    { x: 10, y: 25, kind: 'gem' },
-  ],
-  // The rest face right (auto: toward the more open side).
-  dragonOverrides: [
-    { x: 16, y: 11, facing: 'left' }, // upper hall: head toward the gap by the pillar
-    { x: 15, y: 27, facing: 'left' }, // great hall north-east
-  ],
+  // The lure on the crumbling tile.
+  treasureOnTiles: [{ x: 7, y: 20, kind: 'coin' }],
 };

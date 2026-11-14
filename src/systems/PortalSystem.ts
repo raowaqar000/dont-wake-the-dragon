@@ -31,10 +31,10 @@ export class PortalSystem {
   ) {
     const ts = TUNING.level.tileSize;
     const center = (t: { x: number; y: number }) => [(t.x + 0.5) * ts, (t.y + 0.5) * ts] as const;
+    // Anonymous portals: every one looks the same; only the pairing (by digit) differs.
     for (const pair of pairs) {
-      const color = P.colors[(Number(pair.id) - 1) % P.colors.length];
-      const a = new Portal(scene, ...center(pair.a), color);
-      const b = new Portal(scene, ...center(pair.b), color);
+      const a = new Portal(scene, ...center(pair.a));
+      const b = new Portal(scene, ...center(pair.b));
       a.partner = b;
       b.partner = a;
       this.portals.push(a, b);

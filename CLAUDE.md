@@ -4,7 +4,7 @@ A mobile-only, portrait (720x1280 logical, `Phaser.Scale.FIT`) top-down stealth 
 A tiny hooded treasure hunter sneaks through dark caves, steals treasure and avoids waking dragons.
 Stack: Phaser 3.90, TypeScript 5.9, Vite, Capacitor 8 (Android, app id `com.alihamza.dontwakethedragon`).
 
-Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `npm run android:sync`, `npm run assets` (rebuilds the painted art).
+Scripts: `npm run typecheck` (tsc --noEmit), `npm run validate` (checks every level from the command line), `npm run dev`, `npm run build`, `npm run android:sync`, `npm run assets` (rebuilds the painted art).
 
 ## Folder structure
 
@@ -24,20 +24,30 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 - `src/systems/`:
   - Level and camera: `LevelParser` (grid to `ParsedLevel`); `LevelValidator` (pure path search, no Phaser); `LevelLoader` (walls plus one baked RenderTexture); `CameraRig` (world and UI cameras, `markUi`; hero offset, smoothed look-ahead via `update()`, padded bounds).
   - Gameplay: `MovementSystem` (sneak/run hysteresis, acceleration); `PortalSystem`; `TrapSystem` (spikes, crumble; collapsed crumbles become pits); `FailSystem` (`fail` = card, `quickFail` = trap death with auto-restart, `begin/finish` = dragon sequence; `onDeath` hook counts deaths; `consumeLife` spends a life in `begin()`, and at 0 lives every death opens the OUT OF LIVES card instead); `LivesSystem` (EventEmitter, `LIVES_EVENTS.changed`; `loseLife`, `addLives(n, source)` hook for the extra-life pickup / shop / ads, `resetToFull`; count kept in `SaveData` memory so it survives respawns).
-  - Jump and troll traps: `PitMap` (which tiles are open pits; no physics bodies); `JumpSystem` (EventEmitter, `JUMP_EVENTS.takeoff/land/fell`; buffer, coyote time, cooldown, falls when the body center is over a pit); `TrollTrapSystem` (EventEmitter, `TROLL_EVENTS.triggered`; tile-based triggers checked only on tile change, trap links, tells, fake walls, rubble).
+  - Jump and troll traps: `PitMap` (which tiles are open pits; no physics bodies); `JumpSystem` (EventEmitter, `JUMP_EVENTS.takeoff/land/fell`; buffer, coyote time, cooldown, falls when the body center is over a pit); `TrollTrapSystem` (EventEmitter, `TROLL_EVENTS.triggered` and `TROLL_EVENTS.sensed`; tile-based triggers checked only on tile change, trap links, tells, fake walls, rubble); `TrapHints` (owned by `TrollTrapSystem`: clue decals next to hidden traps, the strong-mode warning sign, and the once-per-trap danger-sense check).
+  - Sound: `SoundSystem` (module singleton, survives scene restarts; one `AudioContext` created on the first touch; `play(key, volume?)`, the snore loop via `setSnore(0..1)`, mute saved in localStorage; `SfxSink` is the interface systems get injected); `SfxSynth` (pure jsfxr-style renderer: `renderSfx(voices, rate)` -> `Float32Array`, rendered once per sound at unlock).
   - Noise and dragons: `NoiseSystem` (`emitNoise(x, y, loudness, source)`, distance falloff, grid-DDA wall dampening, pooled fading rings); `DragonSystem` (owns the dragons, shared smoke/fire emitters, stage haptics, the wake-up sequence, debug reach); `HapticsService` (Capacitor Haptics, `navigator.vibrate` fallback, never throws).
   - Loot: `LootSystem` (pickups, chest opening, totals; emits `LOOT_EVENTS.changed`); `LootFx` (sparkles, coin burst, floating "+N"); `SaveData` (best loot and lifetime deaths per level in localStorage, guarded with try/catch; session attempts, checkpoints and lives in memory; `grantLives(levelId, n)` adds lives from outside a level, capped at `TUNING.lives.max`). Fake treasure emits `LOOT_EVENTS.fakeTaken`.
-  - Graphics: `ArtAssets` (`queueArt`, `artKey(name)`, `hasArt(scene, ...names)`, `ART_SCALE`); `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory`, `TrollTextureFactory` (code-drawn fallbacks for the painted ceiling rock, rubble and jump button; always-used rock shadow and pit overlay), `UiTextureFactory` (code-drawn hearts: full, empty, two broken halves; red edge-glow texture) and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
+  - Graphics: `ArtAssets` (`queueArt`, `artKey(name)`, `hasArt(scene, ...names)`, `ART_SCALE`); `Lighting` (one radial darkness image); `HeroTextureFactory`, `TrapTextureFactory`, `TreasureTextureFactory`, `TrollTextureFactory` (code-drawn fallbacks for the painted ceiling rock, rubble and jump button; always-used rock shadow and pit overlay), `UiTextureFactory` (code-drawn hearts: full, empty, two broken halves; red edge-glow texture), `HintTextureFactory` (code-drawn hint clues, "!" bubble and speaker icons; `HINT_TEXTURE_SCALE`) and `DragonTextureFactory` (procedural art made at boot; the dragon factory also makes the noise ring, smoke and flame).
   - Browser: `MobileGuards` (blocks zoom, scroll and long-press).
-- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only; ignores touches that start on interactive objects); `JumpButton` (round, semi-transparent, bottom right; ignores presses for `ignoreAfterStartMs` after a restart); `Hud` (top bar: loot, timer, gems, chests; deaths and session attempts under it on the left); `LivesHud` (hearts under the bar on the right; break animation, last-life red pulse and red edge glow at depth 1400); `ResultOverlay` (end-of-run card; optional bigger button); `EscapeOverlay`; `DebugOverlay` (below the HUD).
-- `src/levels/`: `types.ts` (level format and symbols, no imports); `index.ts` (`LEVELS`, `getLevel(id)`; start level = `TUNING.debug.startLevel`); `level01.ts` ("The Deep Warren", 25x60 tiles); `level02.ts` ("The Trickster's Tunnel", 25x59, jumping + 18 troll traps, 2 dragons).
+- `src/ui/`: `Joystick` (floating, bottom 60% of the screen, follows one finger only; ignores touches that start on interactive objects); `JumpButton` (round, semi-transparent, bottom right; ignores presses for `ignoreAfterStartMs` after a restart); `Hud` (top bar: loot, timer, gems, chests; deaths and session attempts under it on the left); `LivesHud` (hearts under the bar on the right; break animation, last-life red pulse and red edge glow at depth 1400); `ResultOverlay` (end-of-run card; optional bigger button); `EscapeOverlay`; `DebugOverlay` (below the HUD); `MuteButton` (small round sound on/off under the hearts; interactive, so the joystick ignores it); `DangerBubble` (world-space "!" above the hero, one reused image).
+- `src/levels/`: `types.ts` (level format and symbols, no imports); `index.ts` (`LEVELS` easiest first, `getLevel(id)`; start level = `TUNING.debug.startLevel`, now `'level01'`):
+  - `level01.ts` "The Sleepy Hollow" (15x34 tutorial: 2 dragons, 1 slow spike group, 1 crumble tile, 1 jumpable gap, 1 portal pair, 1 trap floor, 1 checkpoint; strong hints);
+  - `level02.ts` "The Deep Warren" (25x60, the old level01 softened: 4 dragons, slow spikes, 3 checkpoints, 2 portal pairs; strong hints);
+  - `level03.ts` "The Trickster's Tunnel" (25x59, the old level02: jumping + 18 troll traps, 2 dragons, 4 checkpoints, 2 portal pairs added; subtle hints).
+- `scripts/validate-levels.mjs` (`npm run validate`): runs `parseLevel` + `validateLevel` on every level in Node (built-in TypeScript type stripping; `scripts/ts-resolve-hooks.mjs` adds `.ts` to relative imports and stubs `phaser`). Exits 1 on any error.
 - `android/`: Capacitor Android project. `dist/`: Vite output (Capacitor `webDir`).
 
 ## Architecture rules
 
 - **All tunable numbers live in `TUNING` in `src/config.ts`** (speeds, timings, colors, sizes, depths). Don't add magic numbers in entities or systems. Read them through a local alias such as `const P = TUNING.portals`.
 - **Systems stay decoupled.** Systems get what they need as injected deps and callbacks (for example `TrapSystem({ onCaught, isPaused, onFloorCollapsed })`). Cross-cutting systems emit events: `LootSystem` extends `Phaser.Events.EventEmitter`, and the HUD and the sack listen to `LOOT_EVENTS.changed`. New systems should follow the same pattern.
-- **All sound goes through `NoiseSystem.emitNoise(x, y, loudness, source)`.** GameScene wires it in: footsteps (`PlayerVisual.onFootstep`, fired on footfall frames), chest ticks and the open pop (`LootSystem` `onNoise`), portals (`PortalSystem` `onPortalNoise`). Noisy floors and thrown objects should call the same API with a new `NoiseSource`. Loudness 1 = a run step; carry range = loudness * `TUNING.noise.rangePerLoudness`, and the ring shows exactly that range. Anything that hears implements `NoiseListener` and is registered with `noise.addListener`.
+- **Sound effects (what the player hears) go through `SoundSystem`; never create another `AudioContext` (Phaser audio is off: `audio.noAudio`).**
+  - Systems get an optional `sfx?: SfxSink` dep and call `sfx.play('key')`; GameScene passes `SoundSystem`. Events that already exist (loot, jump, lives, checkpoint) are wired in GameScene instead.
+  - Keys = `TUNING.sound.sfx` (synth recipes: voices with wave, pitch slide, envelope, vibrato, low-pass, arpeggio, delay). To swap any sound for a real file: put it in `public/assets/sfx/` and add `key: 'file.mp3'` to `TUNING.sound.files` (synth stays the fallback).
+  - SFX volume is the same everywhere (no distance falloff): the dragon's reaction is the feedback. Exceptions: timed spikes only sound within `spikesHearTiles`, and the snore loop follows the distance to the nearest stage-1 dragon (`snoreVolume` is its own level).
+  - Audio starts only after the first touch (`SoundSystem.install()` in `main.ts`).
+- **Gameplay noise (what dragons hear) goes through `NoiseSystem.emitNoise(x, y, loudness, source)`.** GameScene wires it in: footsteps (`PlayerVisual.onFootstep`, fired on footfall frames), chest ticks and the open pop (`LootSystem` `onNoise`), portals (`PortalSystem` `onPortalNoise`). Noisy floors and thrown objects should call the same API with a new `NoiseSource`. Loudness 1 = a run step; carry range = loudness * `TUNING.noise.rangePerLoudness`, and the ring shows exactly that range. Anything that hears implements `NoiseListener` and is registered with `noise.addListener`.
 - **UI goes on the UI camera.** `new CameraRig(scene)` must be created first in `create()`:
   - The world camera is zoomed (`TUNING.camera.zoom`) and follows the player. The UI camera has zoom 1 and never scrolls.
   - Every HUD object must call `markUi(scene, ...objects)`. Use `setScrollFactor(0)` for HUD objects.
@@ -57,7 +67,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
   - `LevelLoader.check` throws if any check fails.
 - **Painted art with a code-drawn fallback.** Every entity checks `hasArt(scene, ...)` and uses `artKey(name)` textures, otherwise the procedural texture (still built at boot). Display sizes are `TUNING.art.<asset>.displayScale` times `ART_SCALE` (0.5, the art is 2x). Never hard-code art anchor points: add them to the script's `CONFIG` so they land in `artManifest.ts`. After replacing an image, run `npm run assets` and check `art/preview/`.
 - **Visual and physics are split:** `Player` is physics only, and `PlayerVisual` reads its velocity after the physics step (POST_UPDATE).
-- **Depth layers:** floor 0, crumble 1, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108. Last-life red edge glow 1400, HUD is 1500 (hearts 1500-1502), debug 2000, overlays 3000.
+- **Depth layers:** floor 0, crumble 1, hint clues 1.5, spikes 2, portals 3, treasure 4, dragon 5, player 10, chest ring 11, darkness 100. Glows and loot effects that should show through the dark go above 100: noise rings 101, loot effects 104, dragon eyes/Zzz/smoke/meter bar/fire 104-108, danger "!" bubble 106. Last-life red edge glow 1400, HUD is 1500 (hearts 1500-1502, mute button 1500-1501), debug 2000, overlays 3000.
 - **Clean up on scene restart:** retry calls `scene.restart()`. Remove scene and game event listeners on `SHUTDOWN`.
 
 ## Level symbols (from `src/levels/types.ts`)
@@ -68,7 +78,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 | `.` | floor | implemented |
 | `P` | player start (exactly one) | implemented |
 | `E` | exit zone (at least one; tiles that touch merge into one exit) | implemented |
-| `1`-`9` | teleport portal; each digit appears exactly twice (one pair); color is `TUNING.portals.colors[d-1]` | implemented |
+| `1`-`9` | teleport portal; each digit appears exactly twice (one pair); every portal looks the same (`TUNING.portals.color`, no pair colors): the player only finds out where one leads by stepping in | implemented |
 | `^` | spike trap; spike tiles that touch form one group; groups are offset by `groupOffsetMs`; override with `LevelData.spikeOverrides` | implemented |
 | `%` | crumbling floor: shakes when stepped on, then becomes a pit (wall); the level must be finishable with every `%` collapsed | implemented |
 | `c` | treasure: coin (instant pickup) | implemented |
@@ -95,7 +105,7 @@ Scripts: `npm run typecheck` (tsc --noEmit), `npm run dev`, `npm run build`, `np
 
 Coins or gems on top of another tile (for example a gem on a crumbling floor) go in `LevelData.treasureOnTiles`. If that floor collapses first, the treasure is lost.
 
-Optional level data: `trapLinks` (`{ from, to[] }`: firing the trap at `from` fires the traps at `to`); `varyTraps` + `trapVariants` (`{ x, y, alt[] }`: attempt n moves the trap to one of its alternative `.` tiles; off by default).
+Optional level data: `trapLinks` (`{ from, to[] }`: firing the trap at `from` fires the traps at `to`); `varyTraps` + `trapVariants` (`{ x, y, alt[] }`: attempt n moves the trap to one of its alternative `.` tiles; off by default); `hintLevel` (`'strong'` = clues + warning sign + "!" danger sense, `'subtle'` = clues only, `'none'`; default `TUNING.hints.defaultLevel`); `spikeTiming` (`'slow'` uses `TUNING.traps.spikes.slow`; `spikeOverrides` still win).
 The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles), checks the worst case (crumble, trap floors and moving pits all dropped), targets the real exit `e` when there is one, and checks that every moving pit's widened gap is still jumpable.
 
 ## Git rules
@@ -110,7 +120,7 @@ The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles
 - **Mobile-only, touch-only.** No keyboard or mouse controls (keyboard is disabled in the game config). Use multi-touch pointers (`TUNING.input.extraPointers`).
 - **Plan first.** For every feature, give a short plan (files, approach, questions), then STOP and wait for the user's "approved" before writing code.
 - **Never run** the dev server, `vite build` for testing, or Gradle/APK builds. The user runs those.
-- **Always run the type-check** after changes: `npx tsc --noEmit`. Report the result.
+- **Always run the type-check** after changes: `npx tsc --noEmit`. Report the result. After level changes, also run `npm run validate`.
 - **Target cheap Android phones:**
   - Use few draw calls (baked textures, pooled or reused objects). Avoid per-frame allocations.
   - Use simple distance checks instead of heavy physics. Keep particle counts small.
@@ -154,11 +164,19 @@ The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles
    - fairer tells: trap floor triggers from 0.8 tiles off its edge (every frame) and shakes 0.3 s before dropping; hidden pop-up spikes rattle 0.25 s first; rock shadow 0.9 s; walls close in 1.6 s; tells a bit stronger;
    - jump 3.1 tiles, coyote and buffer 150 ms; quieter run steps and landings, faster dragon drain, and `dragon.meter.quietBelow` so sneak steps never hold off the drain.
 11. Lives:
-   - 3 lives per level attempt (`TUNING.lives.start`, cap `max` 5 for lives added from code); every death costs one through `FailSystem`;
+   - lives per level attempt (`TUNING.lives.start`, now 5; cap `max` 5 for lives added from code); every death costs one through `FailSystem`;
    - with lives left: trap deaths quick-respawn with a "-1 heart" pop over the hero, and the dragon card shows "Lives left: X";
    - last life lost: OUT OF LIVES card (loot lost = everything this attempt, deaths, big "Restart level" button with the usual tap safety) restarts from the very beginning (checkpoints, loot and timer cleared, lives full); escaping refills lives;
    - `LivesHud`: code-drawn painted-style hearts under the bar on the right; a lost heart shakes, cracks into two falling halves and fades to an empty heart; on the last life the heart pulses red and a red edge glow pulses (fades out at 0);
    - hooks: reserved symbol `L` (extra-life pickup), `LivesSystem.addLives` / `GameScene.addLives` in a level, `SaveData.grantLives` outside one (shop, rewarded ad). Painted heart art is still to come.
+12. Playtest round 2 (difficulty curve, trap hints, anonymous portals, sound):
+   - new tutorial level01 "The Sleepy Hollow"; old level01 became level02 (west great-hall dragon removed, slow spikes, 3 checkpoints); old level02 became level03 (+2 portal pairs); `npm run validate`;
+   - lives start at 5;
+   - trap hints (`TUNING.hints`, `LevelData.hintLevel`): cracked floor ring on trap floors / moving pits, bones by hidden spikes, a skull by falling rocks and fake treasure, claw scratches at closing-wall mouths; strong mode adds a tiny wooden warning sign and danger sense ("!" bubble + `HapticsService.tick()`, once per trap group within `senseTiles`);
+   - stronger normal tells (crack alpha/width, pinholes, rock shadow and grit, wall seam, moving-pit pebble);
+   - portals are anonymous (one color, no pair ring);
+   - `SoundSystem` + `SfxSynth`: 28 code-generated sounds, snore loop with its own volume, HUD `MuteButton` (localStorage).
+   - Code-drawn placeholders still needing painted art (same texture keys): `hint_bones`, `hint_skull`, `hint_scratches`, `hint_crack_ring`, `hint_sign`, `danger_bubble`, `icon_sound_on`, `icon_sound_off`.
 
 ## Next planned features
 
@@ -168,4 +186,4 @@ The validator understands jumps (straight 4-way over 1..`maxJumpTiles` pit tiles
 4. More traps (alarm bells, swinging axes, arrow walls, fire jets, stalactites, boulders, mimic chests, bats, noisy floors `x` `h` `r`, webs, ice).
 5. Heist escape (main prize collapses the cave, sprint out).
 6. Worlds, 3 stars per level, shop, boss dragons, endless mode, daily challenge.
-7. Sound, music, haptics polish, Supabase leaderboard.
+7. Music, painted art for the hint clues / "!" bubble / sound icons, real recorded SFX (drop-in via `TUNING.sound.files`), haptics polish, Supabase leaderboard.

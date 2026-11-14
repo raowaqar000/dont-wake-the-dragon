@@ -70,8 +70,8 @@ export class ClosingWall {
     // Tell: a dark seam on the inner face of each wall column.
     const seam = scene.add.graphics().setDepth(TUNING.troll.depth + 0.7);
     seam.fillStyle(CW.seamColor, CW.seamAlpha);
-    seam.fillRect(this.rect.x - 4, this.rect.y + 3, 2, h - 6);
-    seam.fillRect(this.rect.right + 2, this.rect.y + 3, 2, h - 6);
+    seam.fillRect(this.rect.x - 2 - CW.seamPx, this.rect.y + 3, CW.seamPx, h - 6);
+    seam.fillRect(this.rect.right + 2, this.rect.y + 3, CW.seamPx, h - 6);
 
     this.bodies = [this.left, this.right].map((s) => {
       const z = scene.add.zone(0, this.rect.centerY, this.half, h);

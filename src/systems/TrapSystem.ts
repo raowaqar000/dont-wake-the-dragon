@@ -5,6 +5,7 @@ import type { Player } from '../entities/Player';
 import { SpikeTrap } from '../entities/SpikeTrap';
 import type { FailEffect } from './FailSystem';
 import type { ParsedLevel, TilePos } from './LevelParser';
+import type { SfxSink } from './SoundSystem';
 
 const T = TUNING.traps;
 
@@ -19,6 +20,8 @@ export interface TrapSystemDeps {
   onFloorCollapsed?: (tile: TilePos) => void;
   /** While true, traps keep animating but can't catch or be triggered (teleport, run over). */
   isPaused: () => boolean;
+  /** Sound effects (optional). Spikes are only heard near the hero (TUNING.sound.spikesHearTiles). */
+  sfx?: SfxSink;
 }
 
 /** Runs every trap (no dragon needed): spike timers, crumbling floors, player hit checks. */
@@ -46,7 +49,14 @@ export class TrapSystem {
       })
       .setDepth(TUNING.playerVisual.depth + 1);
 
-    this.spikes = level.spikeGroups.map((g) => new SpikeTrap(scene, g));
+    this.spikes = level.spikeGroups.map((g) => new SpikeTrap(scene, g, level.spikeTiming));
+    const hear = TUNING.sound.spikesHearTiles * TUNING.level.tileSize;
+    for (const s of this.spikes) {
+      s.onRise = (trap) => {
+        const { x, y } = deps.player;
+        if ((trap.cx - x) ** 2 + (trap.cy - y) ** 2 <= hear * hear) deps.sfx?.play('spikesUp');
+      };
+    }
     this.crumbles = level.crumbles.map(
       (t) =>
         new CrumbleTile(
@@ -82,12 +92,16 @@ export class TrapSystem {
       }
     }
     for (const c of this.crumbles) {
-      if (c.state === 'intact' && c.contains(x, y)) c.trigger(now);
+      if (c.state === 'intact' && c.contains(x, y)) {
+        c.trigger(now);
+        this.deps.sfx?.play('crumble');
+      }
     }
   }
 
   /** The slab is gone: the tile is a pit now (still jumpable; JumpSystem decides falls). */
   private onCollapse(tile: CrumbleTile): void {
+    this.deps.sfx?.play('floorDrop');
     this.deps.addPit(tile.tile);
     this.deps.onFloorCollapsed?.(tile.tile);
   }

@@ -11,6 +11,7 @@ const H = TUNING.haptics;
  */
 export class HapticsService {
   private lastLightAt = -Infinity;
+  private lastTickAt = -Infinity;
   private readonly native: boolean;
 
   constructor() {
@@ -28,24 +29,37 @@ export class HapticsService {
     const now = performance.now();
     if (now - this.lastLightAt < H.cooldownMs) return;
     this.lastLightAt = now;
-    this.fire(false);
+    this.fire('light');
   }
 
   /** Long strong buzz (a dragon wakes). */
   heavy(): void {
-    this.fire(true);
+    this.fire('heavy');
   }
 
-  private fire(heavy: boolean): void {
+  /** Very light tick (danger sense near a hidden trap). Own cooldown: tickCooldownMs. */
+  tick(): void {
+    const now = performance.now();
+    if (now - this.lastTickAt < H.tickCooldownMs) return;
+    this.lastTickAt = now;
+    this.fire('tick');
+  }
+
+  private fire(kind: 'light' | 'heavy' | 'tick'): void {
     if (!H.enabled) return;
     try {
       if (this.native) {
-        const p = heavy ? Haptics.vibrate({ duration: H.heavyMs }) : Haptics.impact({ style: ImpactStyle.Light });
+        const p =
+          kind === 'heavy'
+            ? Haptics.vibrate({ duration: H.heavyMs })
+            : kind === 'tick'
+              ? Haptics.selectionChanged()
+              : Haptics.impact({ style: ImpactStyle.Light });
         p.catch(() => undefined);
         return;
       }
       if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
-        navigator.vibrate(heavy ? H.heavyMs : H.lightMs);
+        navigator.vibrate(kind === 'heavy' ? H.heavyMs : kind === 'tick' ? H.tickMs : H.lightMs);
       }
     } catch {
       // Unsupported device or blocked by the browser: no vibration.

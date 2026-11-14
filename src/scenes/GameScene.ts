@@ -9,7 +9,11 @@ import { CameraRig } from '../systems/CameraRig';
 import { JUMP_EVENTS, JumpSystem, type JumpTakeoff } from '../systems/JumpSystem';
 import { applyTrapVariants } from '../systems/LevelParser';
 import { PitMap } from '../systems/PitMap';
-import { TrollTrapSystem } from '../systems/TrollTrapSystem';
+import { TROLL_EVENTS, TrollTrapSystem } from '../systems/TrollTrapSystem';
+import { SoundSystem } from '../systems/SoundSystem';
+import { LIVES_EVENTS, type LivesChange } from '../systems/LivesSystem';
+import { MuteButton } from '../ui/MuteButton';
+import { DangerBubble } from '../ui/DangerBubble';
 import { JumpButton } from '../ui/JumpButton';
 import { DragonSystem } from '../systems/DragonSystem';
 import { FAIL_REASONS, FailSystem } from '../systems/FailSystem';
@@ -54,6 +58,8 @@ export class GameScene extends Phaser.Scene {
   private deaths = 0;
   /** Time of the first joystick touch; null until the player starts. */
   private startTime: number | null = null;
+  /** Smoothed dragon snore loop level (0..1), fed to SoundSystem.setSnore. */
+  private snore = 0;
 
   constructor() {
     super(SCENE_KEYS.game);
@@ -62,6 +68,11 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.startTime = null;
     this.debug = undefined;
+    this.snore = 0;
+    // Sound effects: one shared system (code synth, swappable for files by key).
+    const sfx = SoundSystem;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => sfx.setSnore(0));
+    const haptics = new HapticsService();
 
     // Temporary level switch (TUNING.debug.startLevel) until the level select exists.
     const base = getLevel(TUNING.debug.startLevel);
@@ -135,6 +146,10 @@ export class GameScene extends Phaser.Scene {
       onRestartLevel: () => this.restartLevel(),
       onLifeLostPop: () => lifeFx.floatText(this.player.x, this.player.y - LV.lostOffsetY, LV.lostText, LV.lostTextColor, LV.lostFontSize),
       onGodModeIgnored: () => this.jump?.resetFall(),
+      sfx,
+    });
+    this.lives.on(LIVES_EVENTS.changed, (e: LivesChange) => {
+      if (e.cause === 'death') sfx.play('heartBreak');
     });
 
     // Every sound in the cave goes through emitNoise (footsteps, chests, portals, landings, traps).
@@ -145,6 +160,8 @@ export class GameScene extends Phaser.Scene {
     visual.onFootstep = (pose, x, y) => {
       const rubble = this.troll?.isRubble(x, y) ?? false;
       noise.emitNoise(x, y, rubble ? Math.max(N.footstep[pose], N.rubbleStep) : N.footstep[pose], 'footstep');
+      // Normal SFX volume everywhere; the dragon's reaction is the feedback.
+      sfx.play(pose === 'run' ? 'stepRun' : 'stepSneak');
     };
 
     // Pits: '-' gaps from the start; crumble / trap floors / moving pits are added when they drop.
@@ -158,7 +175,11 @@ export class GameScene extends Phaser.Scene {
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
     });
     this.jumpButton.onPress = () => this.jump.press();
-    this.jump.on(JUMP_EVENTS.land, (e: { x: number; y: number }) => noise.emitNoise(e.x, e.y, N.land, 'land'));
+    this.jump.on(JUMP_EVENTS.land, (e: { x: number; y: number }) => {
+      noise.emitNoise(e.x, e.y, N.land, 'land');
+      sfx.play('land');
+    });
+    this.jump.on(JUMP_EVENTS.takeoff, () => sfx.play('jump'));
     this.jump.on(JUMP_EVENTS.fell, (e: { x: number; y: number }) => this.fail.quickFail(FAIL_REASONS.pit, { kind: 'fall', x: e.x, y: e.y }));
 
     this.portals = new PortalSystem(
@@ -168,7 +189,10 @@ export class GameScene extends Phaser.Scene {
       visual,
       rig,
       () => this.fail.isOver,
-      (x, y) => noise.emitNoise(x, y, N.portal, 'portal'),
+      (x, y) => {
+        noise.emitNoise(x, y, N.portal, 'portal');
+        sfx.play('portal');
+      },
     );
 
     this.loot = new LootSystem(this, built.parsed, {
@@ -180,7 +204,11 @@ export class GameScene extends Phaser.Scene {
     this.loot.on(LOOT_EVENTS.changed, (e: LootChange) => {
       visual.growSack(sackScaleFor(e.total));
       this.player.speedMultiplier = this.loot.speedMultiplier;
+      if (e.kind === 'coin') sfx.play('coin');
+      else if (e.kind === 'gem') sfx.play('gem');
+      else if (e.kind === 'chest') sfx.play('chestOpen');
     });
+    this.loot.on(LOOT_EVENTS.chestTick, () => sfx.play('chestTick'));
 
     this.checkpoints = new CheckpointSystem(this, built.parsed.checkpoints, {
       levelId: this.level.id,
@@ -188,6 +216,7 @@ export class GameScene extends Phaser.Scene {
       loot: this.loot,
       runTimeMs: () => this.runTimeMs(),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+      onReached: () => sfx.play('checkpoint'),
     });
     this.timeOffsetMs = this.checkpoints.resumed?.timeMs ?? 0;
 
@@ -198,6 +227,7 @@ export class GameScene extends Phaser.Scene {
       // Trap deaths: quick restart, no overlay.
       onCaught: (kind, effect) => this.fail.quickFail(kind === 'pit' ? FAIL_REASONS.pit : FAIL_REASONS.trap, effect),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+      sfx,
     });
 
     this.troll = new TrollTrapSystem(this, built.parsed, {
@@ -209,8 +239,17 @@ export class GameScene extends Phaser.Scene {
       onNoise: (x, y, loudness) => noise.emitNoise(x, y, loudness, 'trap'),
       onFloorDropped: (tile) => this.loot.onFloorCollapsed(tile),
       isPaused: () => this.fail.isOver || this.portals.isTeleporting,
+      hintLevel: this.level.hintLevel ?? TUNING.hints.defaultLevel,
+      sfx,
     });
     this.physics.add.collider(this.player, this.troll.wallBodies);
+    // Danger sense ('strong' hints): "!" over the hero and a light haptic tick, once per trap.
+    const bubble = new DangerBubble(this, this.player);
+    this.troll.on(TROLL_EVENTS.sensed, () => {
+      if (this.fail.isOver) return;
+      bubble.show();
+      haptics.tick();
+    });
     this.loot.on(LOOT_EVENTS.fakeTaken, (tile: { x: number; y: number }) => this.troll.onFakeTaken(tile));
     this.jump.on(JUMP_EVENTS.takeoff, (e: JumpTakeoff) => this.troll.onTakeoff(e));
 
@@ -219,12 +258,14 @@ export class GameScene extends Phaser.Scene {
       player: this.player,
       fail: this.fail,
       rig,
-      haptics: new HapticsService(),
+      haptics,
       isPaused: () => this.portals.isTeleporting,
+      sfx,
     });
 
     this.hud = new Hud(this, this.loot, { deaths: this.deaths, attempts });
     new LivesHud(this, this.lives);
+    new MuteButton(this);
     // Loot taken before the checkpoint is kept (after the HUD and sack listen to it).
     if (this.checkpoints.resumed) this.loot.restore(this.checkpoints.resumed);
     this.hud.setTime(this.timeOffsetMs);
@@ -248,8 +289,20 @@ export class GameScene extends Phaser.Scene {
     this.loot.update(delta);
     this.checkpoints.update();
     this.dragons.update(delta);
+    this.updateSnore(delta);
     if (this.startTime !== null && !this.fail.isOver) this.hud.setTime(this.runTimeMs());
     this.debug?.update(delta, this.player, this.joystick, () => this.debugLines());
+  }
+
+  /** Soft snore loop: louder near a sleeping dragon, silent once the run is over. */
+  private updateSnore(deltaMs: number): void {
+    const S = TUNING.sound;
+    const target = this.fail.isOver
+      ? 0
+      : this.dragons.snoreLevel(this.player.x, this.player.y, S.snoreRangeTiles * TUNING.level.tileSize);
+    const k = Math.min(1, (S.snoreFadePerSec * Math.min(deltaMs, TUNING.movement.maxDeltaMs)) / 1000);
+    this.snore += (target - this.snore) * k;
+    SoundSystem.setSnore(this.snore);
   }
 
   /** Run time (ms), continuing from the checkpoint's time after a respawn. */
@@ -296,6 +349,7 @@ export class GameScene extends Phaser.Scene {
     if (this.portals.isTeleporting || !this.fail.lock()) return;
 
     const elapsed = this.runTimeMs();
+    SoundSystem.play('escape');
     // Escaped: the next run starts from the level start again, with full lives.
     clearCheckpoint(this.level.id);
     this.lives.resetToFull();

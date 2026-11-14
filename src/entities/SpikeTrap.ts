@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { TEXTURE_KEYS, TUNING } from '../config';
 import type { SpikeGroup, TilePos } from '../systems/LevelParser';
+import type { SpikeTiming } from '../levels/types';
 import { ART_SCALE, artKey, hasArt } from '../systems/ArtAssets';
 import { SPIKE_LAYOUT, TRAP_TEXTURE_SCALE } from '../systems/TrapTextureFactory';
 
@@ -22,7 +23,10 @@ export class SpikeTrap {
 
   private readonly downMs: number;
   private readonly upMs: number;
+  private readonly warnMs: number;
   private readonly offsetMs: number;
+  /** Fires once each time the spikes start rising (sound hook). */
+  public onRise: ((trap: SpikeTrap) => void) | null = null;
   private readonly spikes: { img: Phaser.GameObjects.Image; baseX: number }[] = [];
   /** Painted art: the raised-spike image per tile (its base plate never moves). */
   private readonly raised: { img: Phaser.GameObjects.Image; baseX: number; baseY: number }[] = [];
@@ -32,12 +36,20 @@ export class SpikeTrap {
     return hasArt(scene, 'spikes_up', 'spikes_down');
   }
 
-  constructor(scene: Phaser.Scene, group: SpikeGroup) {
+  /** Tile-space center of the group (for "is the hero near" checks). */
+  public readonly cx: number;
+  public readonly cy: number;
+
+  constructor(scene: Phaser.Scene, group: SpikeGroup, timing: SpikeTiming = 'normal') {
     const ts = TUNING.level.tileSize;
     this.tiles = group.tiles;
-    this.downMs = group.override?.downMs ?? S.downMs;
-    this.upMs = group.override?.upMs ?? S.upMs;
-    this.offsetMs = group.override?.offsetMs ?? group.index * S.groupOffsetMs;
+    const base = timing === 'slow' ? S.slow : S;
+    this.downMs = group.override?.downMs ?? base.downMs;
+    this.upMs = group.override?.upMs ?? base.upMs;
+    this.warnMs = Math.min(base.warnMs, this.downMs);
+    this.offsetMs = group.override?.offsetMs ?? group.index * base.groupOffsetMs;
+    this.cx = (group.tiles.reduce((s, t) => s + t.x, 0) / group.tiles.length + 0.5) * ts;
+    this.cy = (group.tiles.reduce((s, t) => s + t.y, 0) / group.tiles.length + 0.5) * ts;
 
     if (SpikeTrap.usesArt(scene)) {
       const scale = ART_SCALE * SA.displayScale;
@@ -76,14 +88,16 @@ export class SpikeTrap {
     const phase = (((now + this.offsetMs) % cycle) + cycle) % cycle;
 
     let height = 0;
+    const before = this.state;
     if (phase < this.downMs) {
-      const warn = phase >= this.downMs - S.warnMs;
+      const warn = phase >= this.downMs - this.warnMs;
       this.state = warn ? 'warn' : 'down';
       height = warn ? S.warnPeek : 0;
     } else {
       const t = phase - this.downMs;
       if (t < S.riseMs) {
         this.state = 'rising';
+        if (before === 'warn' || before === 'down') this.onRise?.(this);
         height = t / S.riseMs;
       } else if (t > this.upMs - S.lowerMs) {
         this.state = 'lowering';

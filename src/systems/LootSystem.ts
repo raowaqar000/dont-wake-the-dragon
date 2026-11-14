@@ -21,6 +21,8 @@ export const LOOT_EVENTS = {
   changed: 'loot-changed',
   /** A fake coin/gem was grabbed (no loot). Payload: TilePos of the fake. */
   fakeTaken: 'loot-fake-taken',
+  /** The chest lock rattled once while opening (every chestTickMs). Payload: { x, y } world px. */
+  chestTick: 'loot-chest-tick',
 } as const;
 
 export interface LootChange {
@@ -234,6 +236,7 @@ export class LootSystem extends Phaser.Events.EventEmitter {
     if (this.noiseTickMs >= TUNING.noise.chestTickMs) {
       this.noiseTickMs -= TUNING.noise.chestTickMs;
       this.deps.onNoise?.(near.x, near.y, TUNING.noise.chestTick);
+      this.emit(LOOT_EVENTS.chestTick, { x: near.x, y: near.y });
     }
     const p = this.openProgressMs / C.openMs;
     if (p >= 1) {

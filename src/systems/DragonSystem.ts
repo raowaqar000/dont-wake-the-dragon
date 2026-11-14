@@ -7,6 +7,7 @@ import { FAIL_REASONS, type FailSystem } from './FailSystem';
 import type { HapticsService } from './HapticsService';
 import type { DragonSpawn } from './LevelParser';
 import { NoiseSystem } from './NoiseSystem';
+import type { SfxSink } from './SoundSystem';
 
 const D = TUNING.dragon;
 const W = D.wake;
@@ -20,6 +21,8 @@ export interface DragonSystemDeps {
   haptics: HapticsService;
   /** While true a full meter waits (e.g. mid-teleport); the wake starts once it's false. */
   isPaused: () => boolean;
+  /** Sound effects (optional): growl, eye sting, phew, roar, fire. */
+  sfx?: SfxSink;
 }
 
 /** Shared smoke and fire emitters for every dragon (two emitters in total). */
@@ -86,7 +89,10 @@ export class DragonSystem {
       (s) =>
         new Dragon(scene, s, this.fx, {
           onStageChange: (_d, from, to) => this.onStageChange(from, to),
-          onPhew: (d) => console.info(`[dragon ${d.index}] phew`),
+          onPhew: (d) => {
+            console.info(`[dragon ${d.index}] phew`);
+            deps.sfx?.play('phew');
+          },
         }),
     );
     for (const d of this.dragons) deps.noise.addListener(d);
@@ -124,6 +130,26 @@ export class DragonSystem {
 
   private onStageChange(from: DragonStage, to: DragonStage): void {
     if (to > from && to >= 2) this.deps.haptics.light();
+    if (to > from && to === 2) this.deps.sfx?.play('growl');
+    if (to > from && to === 3) this.deps.sfx?.play('eyeSting');
+  }
+
+  /**
+   * Snore loudness 0..1 for the sound loop: 1 next to a deep-asleep (stage 1) dragon's body,
+   * fading to 0 at `rangePx`. Stirring or awake dragons don't snore. No allocations.
+   */
+  snoreLevel(x: number, y: number, rangePx: number): number {
+    if (this.waking) return 0;
+    let best = 0;
+    for (const d of this.dragons) {
+      if (!d.isAsleep || d.stage !== 1) continue;
+      const b = d.bounds;
+      const dx = Math.max(b.left - x, 0, x - b.right);
+      const dy = Math.max(b.top - y, 0, y - b.bottom);
+      const level = 1 - Math.sqrt(dx * dx + dy * dy) / rangePx;
+      if (level > best) best = level;
+    }
+    return best;
   }
 
   // Wake-up sequence ------------------------------------------------------
@@ -150,6 +176,7 @@ export class DragonSystem {
 
     at(W.roarAtMs, () => {
       haptics.heavy();
+      this.deps.sfx?.play('roar');
       cam.shake(W.roarShakeMs, W.roarShakeIntensity);
       dragon.nostrilPosition(this.tmp);
       noise.showRing(this.tmp.x, this.tmp.y, W.roarRingRadius, N.ring.colors.roar);
@@ -157,6 +184,7 @@ export class DragonSystem {
     });
 
     at(W.fireAtMs, () => {
+      this.deps.sfx?.play('fire');
       dragon.mouthPosition(this.tmp);
       const dist = Math.max(24, Phaser.Math.Distance.Between(this.tmp.x, this.tmp.y, px, py));
       const angle = Phaser.Math.RadToDeg(Math.atan2(py - this.tmp.y, px - this.tmp.x));

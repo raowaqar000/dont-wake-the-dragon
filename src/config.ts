@@ -46,11 +46,49 @@ export const TEXTURE_KEYS = {
   heartShardRight: 'heart_shard_right',
   /** Red screen-edge glow on the last life. */
   dangerVignette: 'danger_vignette',
+  /** Trap hints (code-drawn, painted-style placeholders): clues near hidden troll traps and the "!" bubble. */
+  hintBones: 'hint_bones',
+  hintSkull: 'hint_skull',
+  hintScratches: 'hint_scratches',
+  hintCrackRing: 'hint_crack_ring',
+  hintSign: 'hint_sign',
+  dangerBubble: 'danger_bubble',
+  /** HUD mute button icons. */
+  iconSoundOn: 'icon_sound_on',
+  iconSoundOff: 'icon_sound_off',
 } as const;
 
 export const COLORS = {
   caveBackground: '#14121a',
 } as const;
+
+/**
+ * One voice of a code-generated sound effect (jsfxr-style). A sound is a list of voices
+ * mixed together; each voice can start later (delayMs) for little jingles.
+ */
+export interface SfxVoice {
+  wave: 'square' | 'saw' | 'triangle' | 'sine' | 'noise';
+  /** Start pitch (Hz). For noise: how often a new random value is picked (lower = rumblier). */
+  freq: number;
+  /** End pitch (Hz), reached exponentially over the voice's length. Default: freq. */
+  slide?: number;
+  /** Envelope (ms): rise, hold at full, fade out. */
+  attackMs: number;
+  sustainMs: number;
+  decayMs: number;
+  /** 0..1 */
+  volume: number;
+  /** Pitch wobble: rate (Hz) and depth (fraction of the pitch). */
+  vibratoHz?: number;
+  vibratoDepth?: number;
+  /** One-pole low-pass cutoff (Hz). Softens harsh waves. */
+  lowpass?: number;
+  /** Pitch jumps by arpMul at arpAtMs (coin "ding-ding"). */
+  arpMul?: number;
+  arpAtMs?: number;
+  /** Start this long after the sound starts (ms). */
+  delayMs?: number;
+}
 
 /** Every tunable gameplay/UI number lives here. */
 export const TUNING = {
@@ -203,8 +241,8 @@ export const TUNING = {
   },
 
   portals: {
-    /** Pair colors, indexed by portal digit - 1. */
-    colors: [0x4fc3ff, 0xc77dff, 0x5cff9d, 0xff9f43, 0xff5c8a, 0xfff35c, 0x5cffe8, 0xa0a0ff, 0xffffff],
+    /** Every portal looks the same (no pair colors): the player only learns where one leads by stepping in. */
+    color: 0xa9b8ff,
     /** Teleport when the player's center is this close to the portal center (px). */
     triggerRadius: 16,
     /** After arriving, the player must get this far away before the portal works again (px)... */
@@ -247,6 +285,8 @@ export const TUNING = {
       lowerMs: 140,
       /** Default phase offset between spike groups (ms * group index). */
       groupOffsetMs: 700,
+      /** LevelData.spikeTiming 'slow' (easy levels): longer safe window, longer warning. */
+      slow: { downMs: 2600, upMs: 900, warnMs: 700, groupOffsetMs: 900 },
       plateColor: 0x4a4652,
       plateEdgeColor: 0x6a6574,
       holeColor: 0x15121a,
@@ -367,7 +407,8 @@ export const TUNING = {
       shakeDust: 3,
       /** Tell: a thin crack. */
       crackColor: 0x1e1a22,
-      crackAlpha: 0.55,
+      crackAlpha: 0.8,
+      crackWidth: 2,
     },
     /** Pop-up spikes 'i': hidden, shoot up when the player is next to them. */
     popSpikes: {
@@ -383,7 +424,8 @@ export const TUNING = {
       rearmMs: 400,
       /** Tell: tiny pinholes. */
       holeColor: 0x15121a,
-      holeAlpha: 0.45,
+      holeAlpha: 0.7,
+      holeRadius: 1.8,
     },
     /** Falling ceiling rock 'R'. */
     rock: {
@@ -392,13 +434,13 @@ export const TUNING = {
       shadowMs: 900,
       fallMs: 170,
       dropHeightPx: 170,
-      shadowMaxAlpha: 0.65,
+      shadowMaxAlpha: 0.8,
       shakeMs: 180,
       shakeIntensity: 0.008,
       slamDust: 12,
       /** Tell: a grain of grit falls every min..max ms while on screen. */
-      gritMinMs: 1100,
-      gritMaxMs: 2600,
+      gritMinMs: 800,
+      gritMaxMs: 1800,
       displayScale: 1,
     },
     /** Closing walls '[' + ']': slide together across the corridor between them. */
@@ -415,7 +457,8 @@ export const TUNING = {
       crushGapPx: 24,
       tint: 0x5e4a3a,
       seamColor: 0x0b0a0d,
-      seamAlpha: 0.7,
+      seamAlpha: 0.9,
+      seamPx: 3,
     },
     /** Fake coin '$' / fake gem '*': no loot, a ring of spikes pops around it, noise. */
     fakeTreasure: {
@@ -446,7 +489,59 @@ export const TUNING = {
     movingPit: {
       /** Ray length from the takeoff point along the jump (tiles). */
       lookAheadTiles: 3,
+      /** Tell: one loose pebble (shadow + stone). */
+      pebbleShadowAlpha: 0.6,
+      pebbleColor: 0x8a8296,
+      pebbleAlpha: 0.95,
     },
+  },
+
+  /**
+   * Trap hints so the player can sense danger. Per level: LevelData.hintLevel
+   *   'strong' = clues + warning sign + "!" danger sense, 'subtle' = clues only, 'none' = nothing.
+   * Clues are code-drawn painted-style placeholders (TEXTURE_KEYS.hint*).
+   */
+  hints: {
+    /** Default when a level doesn't set hintLevel. */
+    defaultLevel: 'subtle' as 'strong' | 'subtle' | 'none',
+    /** Clue textures are drawn at this multiple, shown at 1 / it. */
+    textureResolution: 2,
+    /** Clue size (world px, before scale) and how strongly it shows. */
+    clueSize: 30,
+    clueAlpha: 0.95,
+    /** Clue sits this far (fraction of a tile) toward a corner of its tile, so it doesn't cover the middle. */
+    clueOffset: 0.18,
+    /** Cracked floor ring drawn on the trap tile itself (trap floor / moving pit). */
+    crackRingSize: 44,
+    crackRingAlpha: 0.75,
+    /** Tiny wooden warning sign on the approach side ('strong' only). */
+    signSize: 30,
+    signAlpha: 1,
+    depth: 1.5,
+    /** Colors: bone, outline, wood, scratch, crack. */
+    boneColor: 0xe8dcc0,
+    boneShadeColor: 0xa8987a,
+    outlineColor: 0x1a120c,
+    woodColor: 0x8a5a2b,
+    woodShadeColor: 0x5e3b1a,
+    signMarkColor: 0xd23a2a,
+    scratchColor: 0x1a120c,
+    crackColor: 0x15101a,
+
+    /** Danger sense ('strong'): within senseTiles of an untriggered hidden trap -> "!" + haptic tick, once per trap. */
+    senseTiles: 2,
+    bubbleSize: 34,
+    bubbleColor: 0xfff3d6,
+    bubbleOutlineColor: 0x1a0a0c,
+    bubbleMarkColor: 0xd23a2a,
+    /** Bubble tail tip this far above the hero's body center (px); pop in, hold, fade. */
+    bubbleOffsetY: 34,
+    bubblePopMs: 140,
+    bubbleHoldMs: 700,
+    bubbleFadeMs: 260,
+    bubblePopScale: 1.3,
+    /** Above the darkness so it always reads. */
+    bubbleDepth: 106,
   },
 
   /**
@@ -694,6 +789,9 @@ export const TUNING = {
     heavyMs: 400,
     /** Light ticks closer together than this are skipped (ms). */
     cooldownMs: 400,
+    /** Danger-sense tick: very short, own cooldown (ms). */
+    tickMs: 15,
+    tickCooldownMs: 600,
   },
 
   lighting: {
@@ -935,7 +1033,7 @@ export const TUNING = {
    */
   lives: {
     /** Lives at the start of each level attempt. */
-    start: 3,
+    start: 5,
     /** Cap for lives added from code (future extra-life pickup 'L', shop, rewarded ad). */
     max: 5,
 
@@ -1004,11 +1102,157 @@ export const TUNING = {
     restartFontSize: 58,
   },
 
+  /**
+   * Sound effects (SoundSystem). Every sound is generated in code from the voices in `sfx`
+   * (no audio files needed). To use a real file instead, put it in public/assets/sfx/ and
+   * add `key: 'file.mp3'` to `files` (same keys); the synth is the fallback if it fails to load.
+   * Audio starts only after the first touch (mobile browser rule).
+   */
+  sound: {
+    enabled: true,
+    /** Overall volume of everything (0..1). */
+    masterVolume: 0.7,
+    /** Muted on the very first launch? The HUD button toggles it (saved in localStorage). */
+    mutedByDefault: false,
+    /** Synth render rate (Hz). Lower = cheaper, a bit lo-fi (fits the style). */
+    sampleRate: 22050,
+    /** The same sound can't restart faster than this (ms), so bursts don't stack up. */
+    minGapMs: 40,
+    /** Folder (relative to the page) for real audio files. */
+    filePath: 'assets/sfx/',
+    /** Optional real audio files per sound key, e.g. { coin: 'coin.mp3' }. */
+    files: {} as Partial<Record<string, string>>,
+
+    /** Dragon snore loop (plays a lot, so it has its own volume). 0..1, times masterVolume. */
+    snoreVolume: 0.12,
+    /** Heard from this far from a sleeping (stage 1) dragon's body (tiles); louder closer in. */
+    snoreRangeTiles: 5,
+    /** Volume follows the distance smoothly (fraction per second). */
+    snoreFadePerSec: 2.5,
+
+    /** Timed spikes cycle all the time: only heard within this many tiles of the hero. */
+    spikesHearTiles: 5,
+
+    /** Mute button (UI camera), under the hearts on the right. */
+    button: {
+      x: 672,
+      y: 192,
+      radius: 26,
+      backColor: 0x000000,
+      backAlpha: 0.45,
+      iconSize: 30,
+      iconColor: 0xffffff,
+      offColor: 0xff6b5c,
+      pressScale: 0.88,
+      pressMs: 70,
+      depth: 1500,
+    },
+
+    /** Sound recipes. Keys are the sound names used in code (and in `files`). */
+    sfx: {
+      // Hero and pickups.
+      stepSneak: [{ wave: 'noise', freq: 1800, attackMs: 2, sustainMs: 6, decayMs: 35, volume: 0.06, lowpass: 1100 }],
+      stepRun: [{ wave: 'noise', freq: 1300, attackMs: 2, sustainMs: 14, decayMs: 70, volume: 0.2, lowpass: 1800 }],
+      jump: [{ wave: 'square', freq: 260, slide: 560, attackMs: 4, sustainMs: 40, decayMs: 90, volume: 0.24, lowpass: 2600 }],
+      land: [
+        { wave: 'noise', freq: 600, attackMs: 2, sustainMs: 20, decayMs: 110, volume: 0.28, lowpass: 900 },
+        { wave: 'sine', freq: 120, slide: 55, attackMs: 2, sustainMs: 20, decayMs: 120, volume: 0.28 },
+      ],
+      coin: [{ wave: 'square', freq: 988, arpMul: 1.5, arpAtMs: 60, attackMs: 2, sustainMs: 50, decayMs: 160, volume: 0.3, lowpass: 5000 }],
+      gem: [
+        { wave: 'triangle', freq: 1319, arpMul: 1.5, arpAtMs: 70, attackMs: 2, sustainMs: 80, decayMs: 300, volume: 0.24 },
+        { wave: 'sine', freq: 2637, attackMs: 2, sustainMs: 40, decayMs: 260, volume: 0.08, vibratoHz: 9, vibratoDepth: 0.01, delayMs: 70 },
+      ],
+      chestTick: [{ wave: 'square', freq: 1700, slide: 1300, attackMs: 1, sustainMs: 6, decayMs: 25, volume: 0.18, lowpass: 3500 }],
+      chestOpen: [
+        { wave: 'noise', freq: 900, attackMs: 5, sustainMs: 60, decayMs: 180, volume: 0.2, lowpass: 1400 },
+        { wave: 'square', freq: 523, arpMul: 1.335, arpAtMs: 90, attackMs: 2, sustainMs: 90, decayMs: 300, volume: 0.13, lowpass: 4000, delayMs: 110 },
+      ],
+      checkpoint: [
+        { wave: 'triangle', freq: 523, arpMul: 1.26, arpAtMs: 90, attackMs: 3, sustainMs: 120, decayMs: 120, volume: 0.24 },
+        { wave: 'triangle', freq: 784, attackMs: 3, sustainMs: 80, decayMs: 320, volume: 0.24, delayMs: 200 },
+      ],
+      portal: [
+        { wave: 'sine', freq: 300, slide: 1100, attackMs: 40, sustainMs: 140, decayMs: 260, volume: 0.2, vibratoHz: 12, vibratoDepth: 0.08 },
+        { wave: 'noise', freq: 3000, attackMs: 60, sustainMs: 120, decayMs: 260, volume: 0.09, lowpass: 2500 },
+      ],
+      // Traps.
+      spikesUp: [
+        { wave: 'noise', freq: 4000, attackMs: 1, sustainMs: 20, decayMs: 60, volume: 0.16, lowpass: 5000 },
+        { wave: 'square', freq: 900, slide: 420, attackMs: 1, sustainMs: 10, decayMs: 70, volume: 0.06, lowpass: 3000 },
+      ],
+      crumble: [{ wave: 'noise', freq: 450, attackMs: 10, sustainMs: 260, decayMs: 260, volume: 0.24, lowpass: 800, vibratoHz: 28, vibratoDepth: 0.5 }],
+      floorDrop: [
+        { wave: 'noise', freq: 300, attackMs: 4, sustainMs: 80, decayMs: 350, volume: 0.32, lowpass: 650 },
+        { wave: 'sine', freq: 90, slide: 40, attackMs: 4, sustainMs: 60, decayMs: 300, volume: 0.28 },
+      ],
+      rockFall: [
+        { wave: 'sine', freq: 950, slide: 320, attackMs: 30, sustainMs: 450, decayMs: 120, volume: 0.08 },
+        { wave: 'noise', freq: 2500, attackMs: 30, sustainMs: 450, decayMs: 120, volume: 0.06, lowpass: 2000 },
+      ],
+      rockSlam: [
+        { wave: 'noise', freq: 220, attackMs: 2, sustainMs: 60, decayMs: 450, volume: 0.45, lowpass: 550 },
+        { wave: 'sine', freq: 70, slide: 35, attackMs: 2, sustainMs: 60, decayMs: 380, volume: 0.42 },
+      ],
+      wallsClose: [
+        { wave: 'noise', freq: 260, attackMs: 80, sustainMs: 1100, decayMs: 300, volume: 0.24, lowpass: 420 },
+        { wave: 'saw', freq: 55, attackMs: 80, sustainMs: 1100, decayMs: 300, volume: 0.1, lowpass: 300, vibratoHz: 6, vibratoDepth: 0.05 },
+      ],
+      fakeTreasure: [{ wave: 'square', freq: 660, slide: 200, attackMs: 4, sustainMs: 120, decayMs: 160, volume: 0.3, lowpass: 2500, vibratoHz: 18, vibratoDepth: 0.12 }],
+      // Dragon. The snore is a soft, low breathing loop (inhale, exhale); its level is snoreVolume.
+      snore: [
+        { wave: 'noise', freq: 140, attackMs: 900, sustainMs: 200, decayMs: 500, volume: 0.5, lowpass: 260 },
+        { wave: 'sine', freq: 58, attackMs: 900, sustainMs: 200, decayMs: 500, volume: 0.22, vibratoHz: 18, vibratoDepth: 0.12 },
+        { wave: 'noise', freq: 380, attackMs: 250, sustainMs: 200, decayMs: 1000, volume: 0.3, lowpass: 500, delayMs: 1800 },
+      ],
+      growl: [
+        { wave: 'saw', freq: 82, slide: 68, attackMs: 80, sustainMs: 350, decayMs: 260, volume: 0.32, lowpass: 480, vibratoHz: 22, vibratoDepth: 0.22 },
+        { wave: 'noise', freq: 200, attackMs: 80, sustainMs: 350, decayMs: 260, volume: 0.16, lowpass: 380 },
+      ],
+      eyeSting: [
+        { wave: 'square', freq: 1397, attackMs: 2, sustainMs: 90, decayMs: 320, volume: 0.09, lowpass: 3500, vibratoHz: 7, vibratoDepth: 0.02 },
+        { wave: 'triangle', freq: 1480, attackMs: 2, sustainMs: 90, decayMs: 320, volume: 0.15, delayMs: 30 },
+      ],
+      phew: [
+        { wave: 'noise', freq: 1500, attackMs: 60, sustainMs: 100, decayMs: 420, volume: 0.15, lowpass: 1500 },
+        { wave: 'sine', freq: 620, slide: 300, attackMs: 60, sustainMs: 100, decayMs: 400, volume: 0.07 },
+      ],
+      roar: [
+        { wave: 'saw', freq: 140, slide: 60, attackMs: 40, sustainMs: 700, decayMs: 500, volume: 0.42, lowpass: 900, vibratoHz: 30, vibratoDepth: 0.25 },
+        { wave: 'noise', freq: 420, attackMs: 40, sustainMs: 700, decayMs: 500, volume: 0.32, lowpass: 900 },
+      ],
+      fire: [{ wave: 'noise', freq: 1200, attackMs: 60, sustainMs: 520, decayMs: 300, volume: 0.38, lowpass: 2200, vibratoHz: 8, vibratoDepth: 0.4 }],
+      // Fail, lives, escape.
+      heroHit: [
+        { wave: 'square', freq: 420, slide: 120, attackMs: 1, sustainMs: 40, decayMs: 130, volume: 0.2, lowpass: 3000 },
+        { wave: 'noise', freq: 1500, attackMs: 1, sustainMs: 10, decayMs: 80, volume: 0.16, lowpass: 3000 },
+      ],
+      heroFall: [{ wave: 'sine', freq: 900, slide: 120, attackMs: 5, sustainMs: 380, decayMs: 200, volume: 0.2, vibratoHz: 10, vibratoDepth: 0.03 }],
+      heartBreak: [
+        { wave: 'square', freq: 700, arpMul: 0.75, arpAtMs: 70, attackMs: 1, sustainMs: 60, decayMs: 160, volume: 0.12, lowpass: 3500 },
+        { wave: 'noise', freq: 3000, attackMs: 1, sustainMs: 10, decayMs: 80, volume: 0.12, lowpass: 4000, delayMs: 60 },
+      ],
+      gameOver: [
+        { wave: 'triangle', freq: 392, attackMs: 4, sustainMs: 160, decayMs: 120, volume: 0.24 },
+        { wave: 'triangle', freq: 330, attackMs: 4, sustainMs: 160, decayMs: 120, volume: 0.24, delayMs: 260 },
+        { wave: 'triangle', freq: 262, slide: 247, attackMs: 4, sustainMs: 300, decayMs: 500, volume: 0.26, delayMs: 520 },
+      ],
+      escape: [
+        { wave: 'square', freq: 523, attackMs: 3, sustainMs: 80, decayMs: 60, volume: 0.11, lowpass: 4000 },
+        { wave: 'square', freq: 659, attackMs: 3, sustainMs: 80, decayMs: 60, volume: 0.11, lowpass: 4000, delayMs: 120 },
+        { wave: 'square', freq: 784, attackMs: 3, sustainMs: 80, decayMs: 60, volume: 0.11, lowpass: 4000, delayMs: 240 },
+        { wave: 'triangle', freq: 1047, attackMs: 3, sustainMs: 260, decayMs: 500, volume: 0.24, vibratoHz: 6, vibratoDepth: 0.01, delayMs: 360 },
+      ],
+    } satisfies Record<string, readonly SfxVoice[]>,
+  },
+
   save: {
     /** localStorage key prefix; the level id is appended. */
     bestLootKey: 'dwtd.bestLoot.',
     /** Lifetime deaths per level. */
     deathsKey: 'dwtd.deaths.',
+    /** Sound mute toggle ('1' = muted). */
+    muteKey: 'dwtd.muted',
   },
 
   overlay: {
@@ -1146,14 +1390,10 @@ export const TUNING = {
     },
     portal: {
       displayScale: 0.9,
-      /** Pair-colored swirl inside the stone ring (size relative to the portal, flattened to match its oval). */
+      /** Swirl inside the stone ring (TUNING.portals.color, same on every portal; size relative to the portal, flattened to match its oval). */
       swirlScale: 0.5,
       swirlFlatten: 0.72,
       swirlAlpha: 0.55,
-      /** Thin glow ring in the pair's color (size relative to the portal, px width). */
-      ringScale: 0.47,
-      ringWidth: 2.5,
-      ringAlpha: 0.85,
     },
     /** The door is centered on the exit zone, bottom edge on the zone's bottom edge. */
     exitDoor: { displayScale: 1.3, offsetY: 0 },
@@ -1191,8 +1431,8 @@ export const TUNING = {
 
   debug: {
     enabled: false,
-    /** Level to start (temporary, until the level select exists): 'level01' | 'level02'. */
-    startLevel: 'level02' as string,
+    /** Level to start (temporary, until the level select exists): 'level01' | 'level02' | 'level03'. */
+    startLevel: 'level01' as string,
     /** Draw Arcade physics bodies (walls, player, exit). */
     showBodies: false,
     /** Traps and other fails only flash instead of ending the run (for testing layouts). */
@@ -1230,6 +1470,10 @@ export function createGameConfig(scenes: Phaser.Types.Scenes.SceneType[]): Phase
     },
     input: {
       keyboard: false,
+    },
+    // SoundSystem owns the only AudioContext (created after the first touch).
+    audio: {
+      noAudio: true,
     },
     scene: scenes,
   };

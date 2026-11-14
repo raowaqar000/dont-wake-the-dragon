@@ -10,7 +10,8 @@
  *   'P'      player start (floor tile, exactly one per level)
  *   'E'      exit zone (floor tile, at least one; touching 'E' tiles merge into one exit)
  *   '1'-'9'  teleport portal. Each digit must appear exactly twice: the two tiles are
- *            one pair and lead to each other. Pair colors: TUNING.portals.colors[digit - 1].
+ *            one pair and lead to each other. Every portal looks the same (no pair colors):
+ *            the player only finds out where one leads by stepping in.
  *   '^'      spike trap. Touching spike tiles form one group that moves together.
  *            Groups are offset automatically (TUNING.traps.spikes.groupOffsetMs);
  *            override per group with LevelData.spikeOverrides.
@@ -182,11 +183,27 @@ export interface DragonOverride {
   hearing?: number;
 }
 
+/**
+ * How much the level warns about hidden troll traps:
+ *  - 'strong': clues next to traps (bones, skull, scratches, cracked ring) + a tiny warning
+ *    sign + "danger sense" (a "!" over the hero and a haptic tick within ~2 tiles, once per trap);
+ *  - 'subtle': clues only;
+ *  - 'none':   nothing beyond the traps' own tells.
+ */
+export type HintLevel = 'strong' | 'subtle' | 'none';
+
+/** Spike timing preset: 'slow' uses TUNING.traps.spikes.slow (easy levels). */
+export type SpikeTiming = 'normal' | 'slow';
+
 export interface LevelData {
   /** Stable id, also used to seed the floor shade variation. */
   id: string;
   name: string;
   grid: readonly string[];
+  /** Trap hint strength (default TUNING.hints.defaultLevel). */
+  hintLevel?: HintLevel;
+  /** Spike timing preset for every '^' group (default 'normal'); spikeOverrides still win. */
+  spikeTiming?: SpikeTiming;
   spikeOverrides?: readonly SpikeOverride[];
   treasureOnTiles?: readonly TreasureOnTile[];
   dragonOverrides?: readonly DragonOverride[];
